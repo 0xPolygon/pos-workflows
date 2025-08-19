@@ -63,9 +63,9 @@ test_milestones() {
 		initial_count=0
 	fi
 
-	echo "Initial milestone count: $initial_count"
+	echo "Initial milestones count: $initial_count"
 	local target_count=$((initial_count + 10))
-	echo "Target milestone count: $target_count"
+	echo "Target milestones count: $target_count"
 
 	local max_attempts=20
 	local attempt=0
@@ -78,10 +78,10 @@ test_milestones() {
 		fi
 
 		if [ "$current_count" -ge "$target_count" ]; then
-			echo "✅ Milestone target reached! Current count: $current_count (increased by $((current_count - initial_count)))"
+			echo "✅ Milestones target reached! Current count: $current_count (increased by $((current_count - initial_count)))"
 			return 0
 		else
-			echo "Current milestone count: $current_count (need $((target_count - current_count)) more, polling… attempt $((attempt + 1))/$max_attempts)"
+			echo "Current milestones count: $current_count (need $((target_count - current_count)) more, polling… attempt $((attempt + 1))/$max_attempts)"
 			sleep 5
 			((attempt++))
 		fi
@@ -103,6 +103,7 @@ main() {
 
 		if test_milestones; then
 			echo "✅ Milestones test passed — Heimdall milestones are being created!"
+			echo ""
 			echo "✅ All Kurtosis smoke tests completed successfully!"
 			exit 0
 		else
