@@ -24,12 +24,12 @@ polygon_pos_package:
       el_log_level: info
       el_bor_sync_mode: stateless
 
-    # 1 validator with Bor 2.2.9
+    # 1 validator with Bor 2.2.10
     - kind: validator
       cl_type: heimdall-v2
       cl_image: heimdall-v2:local
       el_type: bor
-      el_image: 0xpolygon/bor:2.2.9
+      el_image: 0xpolygon/bor:2.2.10
       count: 1
       el_bor_produce_witness: false
       el_bor_sync_with_witness: false
