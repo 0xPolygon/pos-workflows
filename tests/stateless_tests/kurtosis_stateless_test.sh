@@ -12,6 +12,7 @@ check_required_tools
 
 # Define the enclave name
 ENCLAVE_NAME=${ENCLAVE_NAME:-"kurtosis-stateless-e2e"}
+export ENCLAVE_NAME
 
 # Setup service lists
 setup_service_lists
