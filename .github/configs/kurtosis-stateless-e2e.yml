@@ -1,7 +1,4 @@
 polygon_pos_package:
-  network_params:
-    el_block_interval_seconds: 1
-
   participants:
     # 4 validators on Bor's stateless_sync branch
     - kind: validator
@@ -9,9 +6,8 @@ polygon_pos_package:
       cl_image: heimdall-v2:local
       el_type: bor
       el_image: bor:local
-      count: 4
       el_bor_produce_witness: true
-      el_log_level: info
+      count: 4
 
     # 3 validators using stateless sync. Any of them having sync issue will cause the test to fail.
     - kind: validator
@@ -19,10 +15,9 @@ polygon_pos_package:
       cl_image: heimdall-v2:local
       el_type: bor
       el_image: bor:local
-      count: 3
-      el_bor_produce_witness: true
-      el_log_level: info
       el_bor_sync_mode: stateless
+      el_bor_produce_witness: true
+      count: 3
 
     # 1 validator with Bor 2.2.10
     - kind: validator
@@ -30,9 +25,9 @@ polygon_pos_package:
       cl_image: heimdall-v2:local
       el_type: bor
       el_image: 0xpolygon/bor:2.2.10
-      count: 1
       el_bor_produce_witness: false
       el_bor_sync_with_witness: false
+      count: 1
 
     # 3 RPC nodes on Bor's stateless_sync branch
     - kind: rpc
@@ -40,27 +35,28 @@ polygon_pos_package:
       cl_image: heimdall-v2:local
       el_type: bor
       el_image: bor:local
-      count: 1
       el_bor_produce_witness: false
       el_bor_sync_with_witness: false
+      count: 1
 
     - kind: rpc
       cl_type: heimdall-v2
       cl_image: heimdall-v2:local
       el_type: bor
       el_image: bor:local
-      count: 1
       el_bor_produce_witness: true
       el_bor_sync_with_witness: false
+      count: 1
 
     - kind: rpc
       cl_type: heimdall-v2
       cl_image: heimdall-v2:local
       el_type: bor
       el_image: bor:local
-      count: 1
+      el_bor_sync_mode: stateless
       el_bor_produce_witness: true
       el_bor_sync_with_witness: true
+      count: 1
 
   additional_services:
     - test_runner
