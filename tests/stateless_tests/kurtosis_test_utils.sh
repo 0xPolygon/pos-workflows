@@ -132,9 +132,12 @@ setup_service_lists() {
 		STATELESS_RPC_SERVICES+=("$SERVICE_PREFIX_VALIDATOR-$i-$SERVICE_SUFFIX_RPC")
 	done
 
+	# Add the new Erigon RPC node
+	STATELESS_RPC_SERVICES+=("l2-el-12-erigon-heimdall-v2-rpc")
+
 	echo "Stateless sync validators ($STATELESS_VALIDATORS_START-$STATELESS_VALIDATORS_END): ${STATELESS_SYNC_VALIDATORS[*]}"
 	echo "Legacy validator ($LEGACY_VALIDATOR_ID): ${LEGACY_VALIDATORS[*]}"
-	echo "RPC services ($RPC_SERVICES_START-$RPC_SERVICES_END): ${STATELESS_RPC_SERVICES[*]}"
+	echo "RPC services ($RPC_SERVICES_START-$RPC_SERVICES_END + Erigon): ${STATELESS_RPC_SERVICES[*]}"
 }
 
 # Function to verify service accessibility
