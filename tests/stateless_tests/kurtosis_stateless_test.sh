@@ -523,6 +523,149 @@ test_polycli_load_with_rotation() {
 	fi
 }
 
+# Test 9: Erigon node sync verification
+test_erigon_node_sync() {
+	echo ""
+	echo "=== Test 9: Verifying Erigon node is in sync with all nodes (except legacy) ==="
+
+	# Get erigon service name
+	ERIGON_SERVICE="l2-el-12-erigon-heimdall-v2-rpc"
+	echo "Checking sync status of Erigon node: $ERIGON_SERVICE"
+
+	# Build list of nodes to compare against (all except legacy validator)
+	SYNC_NODES=("${STATELESS_SYNC_VALIDATORS[@]}" "${STATELESS_RPC_SERVICES[@]}")
+	# Remove erigon from the comparison list since we're comparing it against others
+	COMPARISON_NODES=()
+	for node in "${SYNC_NODES[@]}"; do
+		if [[ "$node" != "$ERIGON_SERVICE" ]]; then
+			COMPARISON_NODES+=("$node")
+		fi
+	done
+
+	echo "Comparing Erigon node against ${#COMPARISON_NODES[@]} other nodes (excluding legacy validator)"
+
+	# Use first stateless validator as reference node
+	REFERENCE_NODE="${STATELESS_SYNC_VALIDATORS[0]}"
+	echo "Using reference node: $REFERENCE_NODE"
+
+	# Get current block number from reference node
+	reference_block=$(get_block_number "$REFERENCE_NODE")
+	if ! [[ "$reference_block" =~ ^[0-9]+$ ]] || [ "$reference_block" -le 0 ]; then
+		echo "❌ Failed to get valid block number from reference node: $reference_block"
+		return 1
+	fi
+
+	# Use a recent block that should be stable (slightly behind current tip)
+	test_block=$((reference_block - 3))
+	if [ "$test_block" -le 0 ]; then
+		test_block=1
+	fi
+
+	echo "Testing sync at block $test_block (reference node at block $reference_block)"
+
+	# Get block hash from reference node
+	reference_hash=$(get_block_hash "$REFERENCE_NODE" "$test_block")
+	if [ -z "$reference_hash" ]; then
+		echo "❌ Failed to get block hash from reference node for block $test_block"
+		return 1
+	fi
+
+	echo "Reference hash from $REFERENCE_NODE: $reference_hash"
+
+	# First check if Erigon node has reached this block
+	erigon_block=$(get_block_number "$ERIGON_SERVICE")
+	if ! [[ "$erigon_block" =~ ^[0-9]+$ ]] || [ "$erigon_block" -le 0 ]; then
+		echo "❌ Failed to get valid block number from Erigon node: $erigon_block"
+		return 1
+	fi
+
+	if [ "$erigon_block" -lt "$test_block" ]; then
+		echo "❌ Erigon node is behind - current block: $erigon_block, test block: $test_block"
+		return 1
+	fi
+
+	echo "Erigon node current block: $erigon_block"
+
+	# Get block hash from Erigon node
+	erigon_hash=$(get_block_hash "$ERIGON_SERVICE" "$test_block")
+	if [ -z "$erigon_hash" ]; then
+		echo "❌ Failed to get block hash from Erigon node for block $test_block"
+		return 1
+	fi
+
+	# Check if Erigon matches the reference
+	if [ "$erigon_hash" = "$reference_hash" ]; then
+		echo "✅ Erigon node matches reference hash: $erigon_hash"
+	else
+		echo "❌ Erigon hash mismatch! Erigon: $erigon_hash, Reference: $reference_hash"
+		return 1
+	fi
+
+	# Compare against additional nodes for comprehensive verification
+	sync_mismatch=false
+	successful_comparisons=1 # Already verified Erigon matches reference
+
+	# Remove the reference node from comparison list since we already used it
+	REMAINING_NODES=()
+	for node in "${COMPARISON_NODES[@]}"; do
+		if [[ "$node" != "$REFERENCE_NODE" ]]; then
+			REMAINING_NODES+=("$node")
+		fi
+	done
+
+	echo ""
+	echo "Verifying additional nodes also match the reference hash..."
+	for node in "${REMAINING_NODES[@]}"; do
+		node_hash=$(get_block_hash "$node" "$test_block")
+		if [ -n "$node_hash" ]; then
+			if [ "$node_hash" = "$reference_hash" ]; then
+				echo "✅ $node matches reference hash: $node_hash"
+				successful_comparisons=$((successful_comparisons + 1))
+			else
+				echo "❌ Hash mismatch! $node has hash: $node_hash (expected: $reference_hash)"
+				sync_mismatch=true
+			fi
+		else
+			echo "❌ Failed to get hash for block $test_block from $node"
+			sync_mismatch=true
+		fi
+	done
+
+	# Verify we had enough successful comparisons (including Erigon)
+	if [ "$successful_comparisons" -lt 4 ]; then
+		echo "❌ Insufficient successful comparisons: $successful_comparisons (need at least 4 including Erigon)"
+		sync_mismatch=true
+	fi
+
+	# Also verify that legacy node is NOT in sync (it should have diverged)
+	echo ""
+	echo "Verifying legacy node divergence..."
+	LEGACY_NODE="${LEGACY_VALIDATORS[0]}"
+	legacy_hash=$(get_block_hash "$LEGACY_NODE" "$test_block")
+
+	if [ -n "$legacy_hash" ]; then
+		if [ "$legacy_hash" = "$reference_hash" ]; then
+			echo "⚠️  Legacy node $LEGACY_NODE has same hash as network: $legacy_hash"
+			echo "    This might indicate the legacy node hasn't diverged yet, which is acceptable"
+		else
+			echo "✅ Legacy node $LEGACY_NODE has different hash: $legacy_hash (expected divergence)"
+		fi
+	else
+		echo "⚠️  Could not get hash from legacy node $LEGACY_NODE (possibly stopped syncing)"
+	fi
+
+	if [ "$sync_mismatch" = false ]; then
+		echo ""
+		echo "✅ Erigon node sync test passed - Erigon node is in sync with all non-legacy nodes"
+		echo "   Successful comparisons: $successful_comparisons"
+		return 0
+	else
+		echo ""
+		echo "❌ Erigon node sync test failed - sync mismatches detected"
+		return 1
+	fi
+}
+
 # Run all tests
 test_block_hash_consensus || exit 1
 test_post_veblop_hf_behavior || exit 1
@@ -532,6 +675,7 @@ test_extreme_network_latency_recovery || exit 1
 test_block_producer_rotation || exit 1
 test_polycli_load_test || exit 1
 test_polycli_load_with_rotation || exit 1
+test_erigon_node_sync || exit 1
 
 echo ""
 echo "🎉 All stateless sync tests passed successfully!"
