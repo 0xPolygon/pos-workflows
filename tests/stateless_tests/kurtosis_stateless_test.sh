@@ -666,6 +666,118 @@ test_erigon_node_sync() {
 	fi
 }
 
+# Test 10: Fastforward sync verification
+test_fastforward_sync() {
+	echo ""
+	echo "=== Test 10: Verifying fastforward sync functionality on stateless node ==="
+
+	TARGET_VALIDATOR="l2-el-5-bor-heimdall-v2-validator"
+	REFERENCE_NODE="${STATELESS_SYNC_VALIDATORS[0]}"
+	test_account="0x97538585a02A3f1B1297EB9979cE1b34ff953f1E"
+	num_txs=3000
+
+	# Check if polycli is available
+	if ! command -v polycli &>/dev/null; then
+		echo "⚠️  polycli not found, skipping fastforward sync test"
+		return 0
+	fi
+
+	first_rpc_url=$(get_rpc_url "${STATELESS_RPC_SERVICES[0]}")
+	initial_block=$(get_block_number "$REFERENCE_NODE")
+	initial_nonce=$(cast nonce "$test_account" --rpc-url "$first_rpc_url")
+
+	echo "Target: $TARGET_VALIDATOR | Initial block: $initial_block | Initial nonce: $initial_nonce"
+
+	# Stop validator and start load test
+	echo "Stopping target validator..."
+	kurtosis service stop pos-devnet "$TARGET_VALIDATOR" || {
+		echo "❌ Failed to stop validator"
+		return 1
+	}
+	sleep 5
+
+	echo "Starting uniswapv3 load test in background..."
+	polycli loadtest --rpc-url "$first_rpc_url" \
+		--private-key "0x2a4ae8c4c250917781d38d95dafbb0abe87ae2c9aea02ed7c7524685358e49c2" \
+		--verbosity 500 --requests $num_txs --rate-limit 100 --mode uniswapv3 \
+		--gas-price 35000000000 >/tmp/polycli_fastforward_test.log 2>&1 &
+	LOAD_PID=$!
+
+	# Wait for 120s to create block gap
+	echo "Waiting 120s for network to advance (target: >30 blocks gap)..."
+	for ((i = 120; i > 0; i -= 10)); do
+		sleep 10
+		current_block=$(get_block_number "$REFERENCE_NODE")
+		echo "  ${i}s remaining... Block: $current_block (+$((current_block - initial_block)) blocks)"
+	done
+
+	blocks_gap=$(($(get_block_number "$REFERENCE_NODE") - initial_block))
+	echo "Network advanced by $blocks_gap blocks"
+	[ "$blocks_gap" -lt 30 ] && echo "⚠️  Gap may be insufficient to trigger fastforward"
+
+	# Restart validator
+	echo "Restarting target validator..."
+	if ! kurtosis service start pos-devnet "$TARGET_VALIDATOR"; then
+		echo "❌ Failed to start validator"
+		kill $LOAD_PID 2>/dev/null || true
+		return 1
+	fi
+	sleep 15
+
+	# Check for fastforward in logs
+	fastforward_detected=false
+	for attempt in {1..3}; do
+		if kurtosis service logs pos-devnet "$TARGET_VALIDATOR" --all 2>&1 | grep -q "Fast forwarding stateless node due to large gap"; then
+			echo "✅ Fastforward mode detected in logs!"
+			fastforward_detected=true
+			break
+		fi
+		[ $attempt -lt 3 ] && sleep 10
+	done
+
+	if [ "$fastforward_detected" = false ]; then
+		echo "❌ Fastforward indicator not found in logs after 3 attempts"
+		kill $LOAD_PID 2>/dev/null || true
+		return 1
+	fi
+
+	# Wait for validator to sync to tip
+	echo "Monitoring sync progress (max 120s)..."
+	sync_timeout=120
+	sync_start=$SECONDS
+	synced_successfully=false
+
+	while [ $((SECONDS - sync_start)) -lt $sync_timeout ]; do
+		reference_block=$(get_block_number "$REFERENCE_NODE")
+		target_block=$(get_block_number "$TARGET_VALIDATOR")
+
+		if [[ "$target_block" =~ ^[0-9]+$ ]] && [ "$target_block" -gt 0 ]; then
+			block_diff=$((reference_block - target_block))
+			echo "  $((SECONDS - sync_start))s: Target=$target_block, Ref=$reference_block, Diff=$block_diff"
+
+			if [ "$block_diff" -le 5 ] && [ "$block_diff" -ge -5 ]; then
+				echo "✅ Target validator synced to tip"
+				synced_successfully=true
+				break
+			fi
+		fi
+		sleep 5
+	done
+
+	# Cleanup and final verification
+	kill $LOAD_PID 2>/dev/null || true
+	final_nonce=$(cast nonce "$test_account" --rpc-url "$first_rpc_url")
+	total_txs=$((final_nonce - initial_nonce))
+
+	if [ "$synced_successfully" = true ]; then
+		echo "✅ Fastforward sync test PASSED - Gap: $blocks_gap blocks, Txs: $total_txs"
+		return 0
+	else
+		echo "❌ Fastforward sync test FAILED - Validator didn't sync within ${sync_timeout}s"
+		return 1
+	fi
+}
+
 # Run all tests
 test_block_hash_consensus || exit 1
 test_post_veblop_hf_behavior || exit 1
@@ -676,6 +788,7 @@ test_block_producer_rotation || exit 1
 test_polycli_load_test || exit 1
 test_polycli_load_with_rotation || exit 1
 test_erigon_node_sync || exit 1
+test_fastforward_sync || exit 1
 
 echo ""
 echo "🎉 All stateless sync tests passed successfully!"
