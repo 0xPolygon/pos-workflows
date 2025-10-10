@@ -690,7 +690,7 @@ test_fastforward_sync() {
 
 	# Stop validator and start load test
 	echo "Stopping target validator..."
-	kurtosis service stop pos-devnet "$TARGET_VALIDATOR" || {
+	kurtosis service stop "$ENCLAVE_NAME" "$TARGET_VALIDATOR" || {
 		echo "❌ Failed to stop validator"
 		return 1
 	}
@@ -717,7 +717,7 @@ test_fastforward_sync() {
 
 	# Restart validator
 	echo "Restarting target validator..."
-	if ! kurtosis service start pos-devnet "$TARGET_VALIDATOR"; then
+	if ! kurtosis service start "$ENCLAVE_NAME" "$TARGET_VALIDATOR"; then
 		echo "❌ Failed to start validator"
 		kill $LOAD_PID 2>/dev/null || true
 		return 1
@@ -727,7 +727,7 @@ test_fastforward_sync() {
 	# Check for fastforward in logs
 	fastforward_detected=false
 	for attempt in {1..3}; do
-		if kurtosis service logs pos-devnet "$TARGET_VALIDATOR" --all 2>&1 | grep -q "Fast forwarding stateless node due to large gap"; then
+		if kurtosis service logs "$ENCLAVE_NAME" "$TARGET_VALIDATOR" --all 2>&1 | grep -q "Fast forwarding stateless node due to large gap"; then
 			echo "✅ Fastforward mode detected in logs!"
 			fastforward_detected=true
 			break
