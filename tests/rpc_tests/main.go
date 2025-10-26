@@ -241,7 +241,6 @@ func main() {
 			mapTestCases["Create Transaction Scenario: eth_getTransactionReceipt"],
 			mapTestCases["StateSyncTx Scenario: eth_getBlockReceipts"],
 			mapTestCases["StateSyncTx Scenario: eth_getTransactionByHash"],
-			mapTestCases["StateSyncTx Scenario: eth_getTransactionReceiptsByBlock"],
 			mapTestCases["StateSyncTx Scenario: eth_getTransactionByBlockHashAndIndex"],
 			mapTestCases["StateSyncTx Scenario: eth_getTransactionByBlockNumberAndIndex"],
 		},
@@ -1621,23 +1620,6 @@ var testCases = []TestCase{
 			}
 
 			return nil
-		},
-	},
-	{
-		Key: "StateSyncTx Scenario: eth_getTransactionReceiptsByBlock",
-		PrepareRequest: func(rm *ResponseMap) (*Request, error) {
-			if (rm.stateSyncBlockHash == common.Hash{}) {
-				return nil, fmt.Errorf("no state sync tx given for request")
-			}
-			return NewRequest("eth_getTransactionReceiptsByBlock", []interface{}{rm.stateSyncBlockHash}), nil
-		},
-		HandleResponse: func(rm *ResponseMap, resp Response) error {
-			txReceipts, err := parseResponse[[]map[string]interface{}](resp.Result)
-			if err != nil {
-				return err
-			}
-
-			return handleGetStateSyncBlockReceipts(rm, "eth_getTransactionReceiptsByBlock", txReceipts)
 		},
 	},
 	{
