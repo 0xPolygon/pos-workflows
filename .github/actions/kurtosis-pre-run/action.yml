@@ -31,7 +31,7 @@ runs:
       run: |
         echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
         sudo apt update
-        sudo apt install -y kurtosis-cli=1.11.1
+        sudo apt install -y kurtosis-cli=1.12.1
         kurtosis analytics disable
         kurtosis version
 
@@ -42,9 +42,10 @@ runs:
         yq --version
 
     - name: Install foundry
-      uses: foundry-rs/foundry-toolchain@v1
+      uses: foundry-rs/foundry-toolchain@50d5a8956f2e319df19e6b57539d7e2acb9f8c1e # v1.5.0
       with:
-        version: v1.3.0
+        version: v1.4.2
+        cache: false
 
     - name: Install polycli
       shell: bash
