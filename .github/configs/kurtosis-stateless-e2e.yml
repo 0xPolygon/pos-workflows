@@ -16,17 +16,16 @@ polygon_pos_package:
       cl_image: heimdall-v2:local
       el_type: bor
       el_image: bor:local
-      el_bor_sync_mode: stateless
       el_bor_produce_witness: true
-      el_bor_sync_with_witness: false
+      el_bor_sync_with_witness: true
       count: 3
 
-    # 1 validator with Bor 2.2.10.
+    # 1 validator with latest Bor image.
     - kind: validator
       cl_type: heimdall-v2
       cl_image: heimdall-v2:local
       el_type: bor
-      el_image: 0xpolygon/bor:2.2.10
+      el_image: 0xpolygon/bor:latest
       el_bor_produce_witness: false
       el_bor_sync_with_witness: false
       count: 1
@@ -55,7 +54,6 @@ polygon_pos_package:
       cl_image: heimdall-v2:local
       el_type: bor
       el_image: bor:local
-      el_bor_sync_mode: stateless
       el_bor_produce_witness: true
       el_bor_sync_with_witness: true
       count: 1
@@ -64,10 +62,9 @@ polygon_pos_package:
       cl_type: heimdall-v2
       cl_image: heimdall-v2:local
       el_type: erigon
-      el_image: erigontech/erigon:v3.0.17
+      el_image: 0xpolygon/erigon:latest
       el_bor_produce_witness: false
       el_bor_sync_with_witness: false
-      el_log_level: info
       count: 1
 
   additional_services:
