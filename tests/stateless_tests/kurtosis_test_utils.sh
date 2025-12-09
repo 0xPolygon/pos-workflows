@@ -17,11 +17,10 @@ NORMAL_SETTLEMENT_LATENCY_SECONDS=${NORMAL_SETTLEMENT_LATENCY_SECONDS:-5}
 MAX_SETTLEMENT_LATENCY_SECONDS=${MAX_SETTLEMENT_LATENCY_SECONDS:-10}
 
 # Service configuration
-STATELESS_VALIDATORS_START=${STATELESS_VALIDATORS_START:-1}
-STATELESS_VALIDATORS_END=${STATELESS_VALIDATORS_END:-7}
-LEGACY_VALIDATOR_ID=${LEGACY_VALIDATOR_ID:-8}
-RPC_SERVICES_START=${RPC_SERVICES_START:-9}
-RPC_SERVICES_END=${RPC_SERVICES_END:-11}
+VALIDATORS_START=${VALIDATORS_START:-1}
+VALIDATORS_END=${VALIDATORS_END:-5}
+RPC_SERVICES_START=${RPC_SERVICES_START:-6}
+RPC_SERVICES_END=${RPC_SERVICES_END:-8}
 
 # Service naming patterns
 SERVICE_PREFIX_VALIDATOR=${SERVICE_PREFIX_VALIDATOR:-"l2-el"}
@@ -113,37 +112,32 @@ setup_service_lists() {
 	echo "Setting up service lists based on kurtosis configuration..."
 
 	# Configuration summary
-	echo "Config: Stateless validators ($STATELESS_VALIDATORS_START-$STATELESS_VALIDATORS_END), Legacy validator ($LEGACY_VALIDATOR_ID), RPC services ($RPC_SERVICES_START-$RPC_SERVICES_END)"
+	echo "Config: Validators ($VALIDATORS_START-$VALIDATORS_END), RPC services ($RPC_SERVICES_START-$RPC_SERVICES_END)"
 
-	STATELESS_SYNC_VALIDATORS=()
-	LEGACY_VALIDATORS=()
-	STATELESS_RPC_SERVICES=()
+	VALIDATORS=()
+	RPC_SERVICES=()
 
-	# Stateless sync validators
-	for ((i = STATELESS_VALIDATORS_START; i <= STATELESS_VALIDATORS_END; i++)); do
-		STATELESS_SYNC_VALIDATORS+=("$SERVICE_PREFIX_VALIDATOR-$i-$SERVICE_SUFFIX_VALIDATOR")
+	# Validators
+	for ((i = VALIDATORS_START; i <= VALIDATORS_END; i++)); do
+		VALIDATORS+=("$SERVICE_PREFIX_VALIDATOR-$i-$SERVICE_SUFFIX_VALIDATOR")
 	done
-
-	# Legacy validator
-	LEGACY_VALIDATORS+=("$SERVICE_PREFIX_VALIDATOR-$LEGACY_VALIDATOR_ID-$SERVICE_SUFFIX_VALIDATOR")
 
 	# RPC nodes
 	for ((i = RPC_SERVICES_START; i <= RPC_SERVICES_END; i++)); do
-		STATELESS_RPC_SERVICES+=("$SERVICE_PREFIX_VALIDATOR-$i-$SERVICE_SUFFIX_RPC")
+		RPC_SERVICES+=("$SERVICE_PREFIX_VALIDATOR-$i-$SERVICE_SUFFIX_RPC")
 	done
 
-	# Add the new Erigon RPC node
-	STATELESS_RPC_SERVICES+=("l2-el-12-erigon-heimdall-v2-rpc")
+	# Add the Erigon RPC node
+	RPC_SERVICES+=("l2-el-9-erigon-heimdall-v2-rpc")
 
-	echo "Stateless sync validators ($STATELESS_VALIDATORS_START-$STATELESS_VALIDATORS_END): ${STATELESS_SYNC_VALIDATORS[*]}"
-	echo "Legacy validator ($LEGACY_VALIDATOR_ID): ${LEGACY_VALIDATORS[*]}"
-	echo "RPC services ($RPC_SERVICES_START-$RPC_SERVICES_END + Erigon): ${STATELESS_RPC_SERVICES[*]}"
+	echo "Validators ($VALIDATORS_START-$VALIDATORS_END): ${VALIDATORS[*]}"
+	echo "RPC services ($RPC_SERVICES_START-$RPC_SERVICES_END + Erigon): ${RPC_SERVICES[*]}"
 }
 
 # Function to verify service accessibility
 verify_service_accessibility() {
 	echo "Verifying service accessibility..."
-	for service in "${STATELESS_SYNC_VALIDATORS[@]}" "${LEGACY_VALIDATORS[@]}" "${STATELESS_RPC_SERVICES[@]}"; do
+	for service in "${VALIDATORS[@]}" "${RPC_SERVICES[@]}"; do
 		rpc_url=$(get_rpc_url $service)
 		if [ -n "$rpc_url" ]; then
 			echo "✅ $service: $rpc_url"
@@ -301,7 +295,7 @@ test_milestone_settlement_latency() {
 	echo "Testing milestone settlement latency for $test_name..."
 	echo "Checking $iterations finalized blocks with max latency threshold of ${max_latency}s"
 
-	REPRESENTATIVE_SERVICE=${STATELESS_SYNC_VALIDATORS[0]}
+	REPRESENTATIVE_SERVICE=${VALIDATORS[0]}
 	echo "Using service $REPRESENTATIVE_SERVICE for latency testing"
 
 	local failed_checks=0
@@ -363,13 +357,13 @@ test_sync_recovery() {
 	# Get initial block numbers from all stateless services
 	local initial_blocks=()
 	local initial_finalized_blocks=()
-	STATELESS_SERVICES=("${STATELESS_SYNC_VALIDATORS[@]}" "${STATELESS_RPC_SERVICES[@]}")
+	ALL_SERVICES=("${VALIDATORS[@]}" "${RPC_SERVICES[@]}")
 
 	# Use first validator for finalized block checks
-	REPRESENTATIVE_SERVICE=${STATELESS_SYNC_VALIDATORS[0]}
+	REPRESENTATIVE_SERVICE=${VALIDATORS[0]}
 	initial_finalized=$(get_finalized_block "$REPRESENTATIVE_SERVICE")
 
-	for service in "${STATELESS_SERVICES[@]}"; do
+	for service in "${ALL_SERVICES[@]}"; do
 		initial_block=$(get_block_number "$service")
 		if [[ "$initial_block" =~ ^[0-9]+$ ]]; then
 			initial_blocks+=("$service:$initial_block")

@@ -42,8 +42,8 @@ test_block_hash_consensus() {
 		block_numbers=()
 		max_block=0
 
-		# Check all services (stateless_sync validators + legacy validators + RPC)
-		ALL_TEST_SERVICES=("${STATELESS_SYNC_VALIDATORS[@]}" "${LEGACY_VALIDATORS[@]}" "${STATELESS_RPC_SERVICES[@]}")
+		# Check all services (validators + RPC)
+		ALL_TEST_SERVICES=("${VALIDATORS[@]}" "${RPC_SERVICES[@]}")
 
 		for service in "${ALL_TEST_SERVICES[@]}"; do
 			block_num=$(get_block_number $service)
@@ -130,49 +130,31 @@ test_post_veblop_hf_behavior() {
 			return 1
 		fi
 
-		# Check stateless_sync services (should continue syncing after HF)
-		max_stateless_block=0
-		for service in "${STATELESS_SYNC_VALIDATORS[@]}" "${STATELESS_RPC_SERVICES[@]}"; do
+		# Check all services (should continue syncing after HF)
+		max_block=0
+		for service in "${VALIDATORS[@]}" "${RPC_SERVICES[@]}"; do
 			block_num=$(get_block_number $service)
-			if [[ "$block_num" =~ ^[0-9]+$ ]] && [ $block_num -gt $max_stateless_block ]; then
-				max_stateless_block=$block_num
+			if [[ "$block_num" =~ ^[0-9]+$ ]] && [ $block_num -gt $max_block ]; then
+				max_block=$block_num
 			fi
 		done
 
-		# Check legacy services (might stop syncing after HF)
-		max_legacy_block=0
-		for service in "${LEGACY_VALIDATORS[@]}"; do
-			block_num=$(get_block_number $service)
-			if [[ "$block_num" =~ ^[0-9]+$ ]] && [ $block_num -gt $max_legacy_block ]; then
-				max_legacy_block=$block_num
-			fi
-		done
+		echo "Current max block: $max_block"
 
-		echo "Current stateless_sync max block: $max_stateless_block"
-		echo "Current legacy max block: $max_legacy_block"
+		if [ $max_block -ge $TARGET_BLOCK_POST_HF ]; then
+			echo "✅ All nodes continued syncing past veblop HF"
 
-		if [ $max_stateless_block -ge $TARGET_BLOCK_POST_HF ]; then
-			echo "✅ Stateless sync nodes continued syncing past veblop HF"
+			# Check block hash consensus for all services at block TARGET_BLOCK_POST_HF
+			echo "Checking block hash consensus for all services at block $TARGET_BLOCK_POST_HF..."
 
-			# Check if legacy nodes stopped progressing
-			if [ $max_legacy_block -lt $TARGET_BLOCK_HF ]; then
-				echo "✅ Legacy nodes appropriately stopped syncing after veblop HF (at block $max_legacy_block)"
-			else
-				echo "⚠️  Legacy nodes are still running (at block $max_legacy_block) - forked off from stateless sync validators"
-			fi
+			ALL_SERVICES=("${VALIDATORS[@]}" "${RPC_SERVICES[@]}")
 
-			# Check block hash consensus for stateless sync services at block TARGET_BLOCK_POST_HF
-			echo "Checking block hash consensus for stateless sync services at block $TARGET_BLOCK_POST_HF..."
-
-			# Only check stateless sync validators and RPC services (not legacy validators).
-			STATELESS_SERVICES=("${STATELESS_SYNC_VALIDATORS[@]}" "${STATELESS_RPC_SERVICES[@]}")
-
-			# Get block hash for block TARGET_BLOCK_POST_HF from all stateless sync services
+			# Get block hash for block TARGET_BLOCK_POST_HF from all services
 			block_hashes=()
 			reference_hash=""
 			hash_mismatch=false
 
-			for service in "${STATELESS_SERVICES[@]}"; do
+			for service in "${ALL_SERVICES[@]}"; do
 				block_hash=$(get_block_hash $service $TARGET_BLOCK_POST_HF)
 				if [ -n "$block_hash" ]; then
 					block_hashes+=("$service:$block_hash")
@@ -204,7 +186,7 @@ test_post_veblop_hf_behavior() {
 				done
 				return 1
 			else
-				echo "✅ All stateless sync services have the same hash for block $TARGET_BLOCK_POST_HF: $reference_hash"
+				echo "✅ All services have the same hash for block $TARGET_BLOCK_POST_HF: $reference_hash"
 			fi
 
 			break
@@ -266,7 +248,7 @@ test_extreme_network_latency_recovery() {
 
 	# Get initial block numbers before applying extreme latency
 	echo "Recording initial block numbers before extreme latency..."
-	initial_max_block=$(get_max_block_from_services "${STATELESS_SYNC_VALIDATORS[@]}" "${STATELESS_RPC_SERVICES[@]}")
+	initial_max_block=$(get_max_block_from_services "${VALIDATORS[@]}" "${RPC_SERVICES[@]}")
 	echo "Initial max block: $initial_max_block"
 
 	# Start extreme network latency
@@ -294,13 +276,13 @@ test_block_producer_rotation() {
 	echo ""
 	echo "=== Test 6: Block producer rotation test ==="
 
-	# Get stateless node 7 for reorg monitoring (l2-el-7-bor-heimdall-v2-validator)
-	STATELESS_NODE_7="l2-el-7-bor-heimdall-v2-validator"
-	echo "Monitoring stateless node 7: $STATELESS_NODE_7"
+	# Get stateless node 4 for reorg monitoring (l2-el-4-bor-heimdall-v2-validator)
+	STATELESS_NODE_4="l2-el-4-bor-heimdall-v2-validator"
+	echo "Monitoring stateless node 4: $STATELESS_NODE_4"
 
 	# Check initial reorg count
-	initial_reorg_count=$(get_reorg_count "$STATELESS_NODE_7")
-	echo "Initial reorg count for $STATELESS_NODE_7: $initial_reorg_count"
+	initial_reorg_count=$(get_reorg_count "$STATELESS_NODE_4")
+	echo "Initial reorg count for $STATELESS_NODE_4: $initial_reorg_count"
 
 	# Run the rotation script 3 times with 15 second intervals
 	for rotation_round in {1..3}; do
@@ -325,25 +307,25 @@ test_block_producer_rotation() {
 	# Check block author diversity in last 100 blocks
 	echo ""
 	echo "Checking block author diversity..."
-	if ! check_block_author_diversity "$STATELESS_NODE_7" 100 2; then
+	if ! check_block_author_diversity "$STATELESS_NODE_4" 100 2; then
 		echo "❌ Block producer rotation test failed - insufficient author diversity"
 		return 1
 	fi
 
-	# Check that stateless node 7 didn't have reorgs during rotation
+	# Check that stateless node 4 didn't have reorgs during rotation
 	echo ""
 	echo "Checking reorg count after rotation..."
-	final_reorg_count=$(get_reorg_count "$STATELESS_NODE_7")
-	echo "Final reorg count for $STATELESS_NODE_7: $final_reorg_count"
+	final_reorg_count=$(get_reorg_count "$STATELESS_NODE_4")
+	echo "Final reorg count for $STATELESS_NODE_4: $final_reorg_count"
 
 	if [[ "$initial_reorg_count" =~ ^[0-9]+$ ]] && [[ "$final_reorg_count" =~ ^[0-9]+$ ]]; then
 		reorg_diff=$((final_reorg_count - initial_reorg_count))
 		echo "Reorg count difference: $reorg_diff"
 
 		if [ "$reorg_diff" -eq 0 ]; then
-			echo "✅ No reorgs detected on stateless node 7 during block producer rotation"
+			echo "✅ No reorgs detected on stateless node 4 during block producer rotation"
 		else
-			echo "❌ Detected $reorg_diff reorgs on stateless node 7 during rotation (expected: 0)"
+			echo "❌ Detected $reorg_diff reorgs on stateless node 4 during rotation (expected: 0)"
 			return 1
 		fi
 	else
@@ -360,7 +342,7 @@ test_polycli_load_test() {
 	echo "=== Test 7: Load test with polycli ==="
 
 	polycli_bin=$(which polycli)
-	first_rpc_service="${STATELESS_RPC_SERVICES[0]}"
+	first_rpc_service="${RPC_SERVICES[0]}"
 	first_rpc_url=$(get_rpc_url "$first_rpc_service")
 	echo "Using RPC service: $first_rpc_service -> $first_rpc_url"
 
@@ -407,7 +389,7 @@ test_polycli_load_with_rotation() {
 	fi
 
 	polycli_bin=$(which polycli)
-	first_rpc_service="${STATELESS_RPC_SERVICES[0]}"
+	first_rpc_service="${RPC_SERVICES[0]}"
 	first_rpc_url=$(get_rpc_url "$first_rpc_service")
 	echo "Using RPC service: $first_rpc_service -> $first_rpc_url"
 
@@ -526,14 +508,14 @@ test_polycli_load_with_rotation() {
 # Test 9: Erigon node sync verification
 test_erigon_node_sync() {
 	echo ""
-	echo "=== Test 9: Verifying Erigon node is in sync with all nodes (except legacy) ==="
+	echo "=== Test 9: Verifying Erigon node is in sync with all nodes ==="
 
 	# Get erigon service name
-	ERIGON_SERVICE="l2-el-12-erigon-heimdall-v2-rpc"
+	ERIGON_SERVICE="l2-el-9-erigon-heimdall-v2-rpc"
 	echo "Checking sync status of Erigon node: $ERIGON_SERVICE"
 
-	# Build list of nodes to compare against (all except legacy validator)
-	SYNC_NODES=("${STATELESS_SYNC_VALIDATORS[@]}" "${STATELESS_RPC_SERVICES[@]}")
+	# Build list of nodes to compare against
+	SYNC_NODES=("${VALIDATORS[@]}" "${RPC_SERVICES[@]}")
 	# Remove erigon from the comparison list since we're comparing it against others
 	COMPARISON_NODES=()
 	for node in "${SYNC_NODES[@]}"; do
@@ -542,10 +524,10 @@ test_erigon_node_sync() {
 		fi
 	done
 
-	echo "Comparing Erigon node against ${#COMPARISON_NODES[@]} other nodes (excluding legacy validator)"
+	echo "Comparing Erigon node against ${#COMPARISON_NODES[@]} other nodes"
 
-	# Use first stateless validator as reference node
-	REFERENCE_NODE="${STATELESS_SYNC_VALIDATORS[0]}"
+	# Use first validator as reference node
+	REFERENCE_NODE="${VALIDATORS[0]}"
 	echo "Using reference node: $REFERENCE_NODE"
 
 	# Get current block number from reference node
@@ -637,26 +619,9 @@ test_erigon_node_sync() {
 		sync_mismatch=true
 	fi
 
-	# Also verify that legacy node is NOT in sync (it should have diverged)
-	echo ""
-	echo "Verifying legacy node divergence..."
-	LEGACY_NODE="${LEGACY_VALIDATORS[0]}"
-	legacy_hash=$(get_block_hash "$LEGACY_NODE" "$test_block")
-
-	if [ -n "$legacy_hash" ]; then
-		if [ "$legacy_hash" = "$reference_hash" ]; then
-			echo "⚠️  Legacy node $LEGACY_NODE has same hash as network: $legacy_hash"
-			echo "    This might indicate the legacy node hasn't diverged yet, which is acceptable"
-		else
-			echo "✅ Legacy node $LEGACY_NODE has different hash: $legacy_hash (expected divergence)"
-		fi
-	else
-		echo "⚠️  Could not get hash from legacy node $LEGACY_NODE (possibly stopped syncing)"
-	fi
-
 	if [ "$sync_mismatch" = false ]; then
 		echo ""
-		echo "✅ Erigon node sync test passed - Erigon node is in sync with all non-legacy nodes"
+		echo "✅ Erigon node sync test passed - Erigon node is in sync with all nodes"
 		echo "   Successful comparisons: $successful_comparisons"
 		return 0
 	else
@@ -671,8 +636,8 @@ test_fastforward_sync() {
 	echo ""
 	echo "=== Test 10: Verifying fastforward sync functionality on stateless node ==="
 
-	TARGET_VALIDATOR="l2-el-5-bor-heimdall-v2-validator"
-	REFERENCE_NODE="${STATELESS_SYNC_VALIDATORS[0]}"
+	TARGET_VALIDATOR="l2-el-4-bor-heimdall-v2-validator"
+	REFERENCE_NODE="${VALIDATORS[0]}"
 	test_account="0x97538585a02A3f1B1297EB9979cE1b34ff953f1E"
 	num_txs=3000
 
@@ -682,7 +647,7 @@ test_fastforward_sync() {
 		return 0
 	fi
 
-	first_rpc_url=$(get_rpc_url "${STATELESS_RPC_SERVICES[0]}")
+	first_rpc_url=$(get_rpc_url "${RPC_SERVICES[0]}")
 	initial_block=$(get_block_number "$REFERENCE_NODE")
 	initial_nonce=$(cast nonce "$test_account" --rpc-url "$first_rpc_url")
 
@@ -704,7 +669,7 @@ test_fastforward_sync() {
 	LOAD_PID=$!
 
 	# Wait for 120s to create block gap
-	echo "Waiting 120s for network to advance (target: >30 blocks gap)..."
+	echo "Waiting 120s for network to advance (target: >64 blocks gap)..."
 	for ((i = 120; i > 0; i -= 10)); do
 		sleep 10
 		current_block=$(get_block_number "$REFERENCE_NODE")
@@ -713,7 +678,7 @@ test_fastforward_sync() {
 
 	blocks_gap=$(($(get_block_number "$REFERENCE_NODE") - initial_block))
 	echo "Network advanced by $blocks_gap blocks"
-	[ "$blocks_gap" -lt 30 ] && echo "⚠️  Gap may be insufficient to trigger fastforward"
+	[ "$blocks_gap" -lt 64 ] && echo "⚠️  Gap may be insufficient to trigger fastforward"
 
 	# Restart validator
 	echo "Restarting target validator..."
