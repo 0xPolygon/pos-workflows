@@ -1,6 +1,6 @@
 polygon_pos_package:
   participants:
-    # 4 validators.
+    # 3 validators.
     - kind: validator
       cl_type: heimdall-v2
       cl_image: heimdall-v2:local
@@ -8,9 +8,9 @@ polygon_pos_package:
       el_image: bor:local
       el_bor_produce_witness: true
       el_bor_sync_with_witness: false
-      count: 4
+      count: 3
 
-    # 3 validators using stateless sync. Any of them having sync issue will cause the test to fail.
+    # 2 validators using stateless sync. Any of them having sync issue will cause the test to fail.
     - kind: validator
       cl_type: heimdall-v2
       cl_image: heimdall-v2:local
@@ -18,19 +18,9 @@ polygon_pos_package:
       el_image: bor:local
       el_bor_produce_witness: true
       el_bor_sync_with_witness: true
-      count: 3
+      count: 2
 
-    # 1 validator with latest Bor image.
-    - kind: validator
-      cl_type: heimdall-v2
-      cl_image: heimdall-v2:local
-      el_type: bor
-      el_image: 0xpolygon/bor:latest
-      el_bor_produce_witness: false
-      el_bor_sync_with_witness: false
-      count: 1
-
-    # 3 RPC nodes.
+    # 4 RPC nodes.
     - kind: rpc
       cl_type: heimdall-v2
       cl_image: heimdall-v2:local
