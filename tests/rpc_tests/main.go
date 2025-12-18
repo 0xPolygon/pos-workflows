@@ -644,18 +644,6 @@ func validateSnapshot(snap *bor.Snapshot) error {
 		return fmt.Errorf("snapshot is nil")
 	}
 
-	// Validate Recents
-	if len(snap.Recents) == 0 {
-		return fmt.Errorf("recents map is empty")
-	}
-
-	// Check recent addresses
-	for blockNum, addr := range snap.Recents {
-		if addr == (common.Address{}) {
-			return fmt.Errorf("zero address found in recents at block %d", blockNum)
-		}
-	}
-
 	// Validate ValidatorSet
 	if snap.ValidatorSet == nil {
 		return fmt.Errorf("validator set is nil")
