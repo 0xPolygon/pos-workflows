@@ -9,8 +9,8 @@ KURTOSIS_PORT_ID="http"
 PUMBA_IMAGE="gaiaadm/pumba:0.10.1"
 TC_IMAGE="gaiadocker/iproute2"
 INTERFACE="eth0"
-DELAY_TIME=6000 # ms
-JITTER=1000     # ms
+DELAY_TIME=10000
+JITTER=1000
 DURATION="15s"
 
 # Get dynamic port from Kurtosis
