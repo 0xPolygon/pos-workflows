@@ -57,5 +57,13 @@ polygon_pos_package:
       el_bor_sync_with_witness: false
       count: 1
 
+    # Use stable images we know work.
+    - kind: rpc
+      cl_type: heimdall-v2
+      cl_image: 0xpolygon/heimdall-v2:0.6.0
+      el_type: bor
+      el_image: 0xpolygon/bor:2.5.8
+      count: 1
+
   additional_services:
     - test_runner

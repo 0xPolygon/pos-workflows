@@ -4,6 +4,7 @@ set -e
 # Source utility functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/kurtosis_test_utils.sh"
+source "$SCRIPT_DIR/test_evm_opcode_coverage.sh"
 
 echo "Starting stateless sync tests..."
 
@@ -754,6 +755,7 @@ test_polycli_load_test || exit 1
 test_polycli_load_with_rotation || exit 1
 test_erigon_node_sync || exit 1
 test_fastforward_sync || exit 1
+test_evm_opcode_coverage || exit 1
 
 echo ""
 echo "🎉 All stateless sync tests passed successfully!"
