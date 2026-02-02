@@ -56,6 +56,3 @@ polygon_pos_package:
       el_bor_produce_witness: false
       el_bor_sync_with_witness: false
       count: 1
-
-  additional_services:
-    - test_runner
