@@ -15,6 +15,3 @@ polygon_pos_package:
       el_type: bor
       el_image: bor:local
       count: 1
-
-  additional_services:
-    - test_runner
