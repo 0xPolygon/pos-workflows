@@ -23,6 +23,3 @@ polygon_pos_package:
       el_type: bor
       el_image: 0xpolygon/bor:2.5.8
       count: 1
-
-  additional_services:
-    - test_runner
