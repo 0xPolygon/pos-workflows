@@ -13,12 +13,12 @@ DELAY_TIME=10000
 JITTER=1000
 DURATION="15s"
 
-# Get dynamic port from Kurtosis
-echo "Getting dynamic span API URL from Kurtosis..."
+# Get dynamic port from kurtosis
+echo "Getting dynamic span API URL from kurtosis..."
 SPAN_URL=$(kurtosis port print "$ENCLAVE_NAME" "$KURTOSIS_CONTAINER" "$KURTOSIS_PORT_ID")
 
 if [[ -z "$SPAN_URL" ]]; then
-	echo "❌ Failed to get span URL from Kurtosis"
+	echo "❌ Failed to get span URL from kurtosis"
 	exit 1
 fi
 

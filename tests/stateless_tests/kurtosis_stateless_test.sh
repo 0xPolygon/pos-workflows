@@ -5,7 +5,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/kurtosis_test_utils.sh"
 
-echo "Starting stateless sync tests..."
+echo "Starting kurtosis stateless sync tests..."
 
 # Check if required tools are available
 check_required_tools
@@ -668,9 +668,9 @@ test_fastforward_sync() {
 		--gas-price 35000000000 >/tmp/polycli_fastforward_test.log 2>&1 &
 	LOAD_PID=$!
 
-	# Wait for 120s to create block gap
-	echo "Waiting 120s for network to advance (target: >64 blocks gap)..."
-	for ((i = 120; i > 0; i -= 10)); do
+	# Wait for 90s to create block gap
+	echo "Waiting 90s for network to advance (target: >64 blocks gap)..."
+	for ((i = 90; i > 0; i -= 10)); do
 		sleep 10
 		current_block=$(get_block_number "$REFERENCE_NODE")
 		echo "  ${i}s remaining... Block: $current_block (+$((current_block - initial_block)) blocks)"
@@ -687,6 +687,7 @@ test_fastforward_sync() {
 		kill $LOAD_PID 2>/dev/null || true
 		return 1
 	fi
+
 	sleep 15
 
 	# Check for fastforward in logs
@@ -707,8 +708,8 @@ test_fastforward_sync() {
 	fi
 
 	# Wait for validator to sync to tip
-	echo "Monitoring sync progress (max 120s)..."
-	sync_timeout=120
+	echo "Monitoring sync progress (max 60s)..."
+	sync_timeout=60
 	sync_start=$SECONDS
 	synced_successfully=false
 

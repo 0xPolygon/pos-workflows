@@ -1,15 +1,15 @@
 #!/bin/bash
 
-# Utility functions for Kurtosis stateless sync tests
+# Utility functions for kurtosis stateless sync tests
 
 # =============================================================================
 # Configuration parameters - adjust these as needed
 # =============================================================================
 
 # Test configuration
-TARGET_BLOCK=${TARGET_BLOCK:-250}
+TARGET_BLOCK=${TARGET_BLOCK:-255}
 TARGET_BLOCK_HF=${TARGET_BLOCK_HF:-256}
-TARGET_BLOCK_POST_HF=${TARGET_BLOCK_POST_HF:-300}
+TARGET_BLOCK_POST_HF=${TARGET_BLOCK_POST_HF:-260}
 TEST_TIMEOUT_SECONDS=${TEST_TIMEOUT_SECONDS:-1800} # 30 minutes
 SLEEP_INTERVAL=${SLEEP_INTERVAL:-5}
 LATENCY_CHECK_ITERATIONS=${LATENCY_CHECK_ITERATIONS:-10}
