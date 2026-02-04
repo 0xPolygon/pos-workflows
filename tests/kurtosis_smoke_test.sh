@@ -124,11 +124,10 @@ test_milestones() {
 }
 
 # EVM opcode and precompile coverage test
-# Tests all EVM opcodes and precompiled contracts using polycli's LoadTester contract.
-# Verifies transactions on both primary RPC and baseline node (stable release).
+# Tests all EVM opcodes and precompiled contracts using polycli's LoadTester contract
+# Verifies transactions on both primary RPC and baseline node (stable release)
 test_evm_opcode_coverage() {
-	echo ""
-	echo "=== EVM opcode and precompile coverage test ==="
+	echo "Starting evm opcode and precompile coverage test..."
 
 	# Check polycli availability
 	if ! command -v polycli &>/dev/null; then
@@ -200,7 +199,7 @@ test_evm_opcode_coverage() {
 
 	# EVM opcodes (60 total)
 	echo ""
-	echo "--- Sending EVM Opcode Transactions (60 functions) ---"
+	echo "Sending EVM opcode transactions (60 functions)..."
 
 	OPCODES=(
 		"testADD" "testMUL" "testSUB" "testDIV" "testSDIV"
@@ -243,7 +242,7 @@ test_evm_opcode_coverage() {
 
 	# Precompiles (10 total)
 	echo ""
-	echo "--- Sending Precompile Transactions (10 functions) ---"
+	echo "Sending precompile transactions (10 functions)..."
 
 	MODEXP_INPUT="0x000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000001020305"
 	ECADD_INPUT="0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
@@ -288,11 +287,11 @@ test_evm_opcode_coverage() {
 
 	# Wait and verify
 	echo ""
-	echo "--- Waiting for transactions to be mined ---"
+	echo "Waiting for transactions to be mined..."
 	sleep 15
 
 	echo ""
-	echo "--- Verifying transaction receipts ---"
+	echo "Verifying transaction receipts..."
 	passed=0
 	failed=0
 
@@ -333,7 +332,7 @@ test_evm_opcode_coverage() {
 
 	# Final sync verification
 	echo ""
-	echo "--- Final Sync Verification ---"
+	echo "Final sync verification..."
 	sleep 10
 
 	REFERENCE_NODE="${VALIDATORS[0]}"
@@ -359,7 +358,7 @@ test_evm_opcode_coverage() {
 	# Results
 	total=$((passed + failed))
 	echo ""
-	echo "=== EVM Opcode & Precompile Coverage Results ==="
+	echo "EVM opcode and precompile coverage results:"
 	echo "Total: $total | Passed: $passed | Failed: $failed"
 
 	if [ $failed -gt 0 ]; then
@@ -372,7 +371,7 @@ test_evm_opcode_coverage() {
 }
 
 main() {
-	echo "Starting Kurtosis Smoke Tests"
+	echo "Starting kurtosis smoke tests"
 	echo "Enclave: $ENCLAVE_NAME"
 	echo "Service: $HEIMDALL_SERVICE_NAME"
 	echo ""
@@ -397,7 +396,7 @@ main() {
 	fi
 	echo ""
 
-	echo "✅ All Kurtosis smoke tests completed successfully!"
+	echo "✅ All kurtosis smoke tests completed successfully!"
 	exit 0
 }
 
