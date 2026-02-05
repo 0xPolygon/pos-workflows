@@ -13,17 +13,11 @@ import (
 	"time"
 )
 
-// Get heimdall REST API
-// Get bor RPC endpoint
-// Estimate set producer downtime from first heimdall val +2 mins into the future
-// Start fetching spans from 0 up to latest span and fill a slice - you can have a lookup
-// function so iterate that slices going from back to front to find the exact block range
-// because newer spans override the old ones
-// Execute the actual set producer downtime from that heimdall val
-// Get the actual downtime range blocks for that producer
-// Wait for that downtime range to start to get executed
-// Check if the block before it, was executed by the correct validator
-// Check if its executed by the expected validator
+// Tests producer planned downtime by:
+// 1. Scheduling downtime for a future time
+// 2. Waiting for downtime window to start
+// 3. Verifying blocks during downtime are NOT produced by the downed producer
+// 4. Verifying blocks after downtime resume normal production
 func main() {
 	enclave = os.Getenv("ENCLAVE_NAME")
 	if enclave == "" {
@@ -38,6 +32,11 @@ func main() {
 	}
 
 	fmt.Printf("Bor RPC endpoint: %s\n", borRPC)
+
+	if err = waitForBlock(minStartBlock, time.Second); err != nil {
+		panic(fmt.Sprintf("Failed waiting for min start block %d: %v", minStartBlock, err))
+	}
+	fmt.Printf("Reached min start block %d\n", minStartBlock)
 
 	heimdallREST, err = getHeimdallRest()
 	if err != nil {
@@ -129,7 +128,7 @@ func main() {
 
 	fmt.Printf("Producer downtime blocks from Heimdall: Start: %d, End: %d\n", startDowntimeBlock, endDowntimeBlock)
 
-	if err := waitForBlock(startDowntimeBlock, downtimeStartSecondsInFuture*time.Second); err != nil {
+	if err := waitForBlock(startDowntimeBlock, time.Second); err != nil {
 		panic(fmt.Sprintf("Failed to wait for start downtime block: %v", err))
 	}
 
@@ -173,11 +172,15 @@ func main() {
 		panic(fmt.Sprintf("Block %d author should not be the downtime producer %s", startDowntimeBlock, span.ProducerAddress))
 	}
 
-	if err := waitForBlock(endDowntimeBlock, downtimeDurationSeconds*time.Second); err != nil {
+	if err := waitForBlock(endDowntimeBlock, time.Second); err != nil {
 		panic(fmt.Sprintf("Failed to wait for end downtime block: %v", err))
 	}
 
 	fmt.Printf("Downtime ended at block %d\n", endDowntimeBlock)
+
+	if err := getSpans(); err != nil {
+		panic(fmt.Sprintf("Failed to refresh spans: %v", err))
+	}
 
 	// Check last downtime block
 	author, err = getBorBlockAuthor(endDowntimeBlock)
@@ -196,6 +199,14 @@ func main() {
 
 	if strings.EqualFold(author, span.ProducerAddress) {
 		panic(fmt.Sprintf("Block %d author should not be the downtime producer %s", endDowntimeBlock, span.ProducerAddress))
+	}
+
+	if err := waitForBlock(endDowntimeBlock+1, time.Second); err != nil {
+		panic(fmt.Sprintf("Failed to wait for block after downtime: %v", err))
+	}
+
+	if err := getSpans(); err != nil {
+		panic(fmt.Sprintf("Failed to refresh spans: %v", err))
 	}
 
 	// Check block after downtime
@@ -696,6 +707,7 @@ type spanResponse struct {
 }
 
 const (
+	minStartBlock                = 256
 	downtimeStartSecondsInFuture = 180 // 3 minutes
 	downtimeDurationSeconds      = 180 // 3 minutes
 

@@ -42,6 +42,22 @@ get_block_hash() {
 	cast block "$block_number" --rpc-url "$rpc_url" --json 2>/dev/null | jq -r '.hash // empty'
 }
 
+wait_for_block() {
+	local target_block=$1
+	local service_name="${VALIDATORS[0]}"
+	echo "Waiting for block $target_block..."
+
+	while true; do
+		current_block=$(get_block_number "$service_name")
+		if [[ "$current_block" =~ ^[0-9]+$ ]] && [ "$current_block" -ge "$target_block" ]; then
+			echo "Reached block $current_block (target: $target_block)"
+			return 0
+		fi
+		echo "Current block: $current_block, waiting for $target_block..."
+		sleep 1
+	done
+}
+
 test_checkpoints() {
 	echo "Starting checkpoints test..."
 
@@ -397,6 +413,9 @@ main() {
 	echo "Starting kurtosis smoke tests"
 	echo "Enclave: $ENCLAVE_NAME"
 	echo "Service: $HEIMDALL_SERVICE_NAME"
+	echo ""
+
+	wait_for_block 256
 	echo ""
 
 	if ! test_evm_opcode_coverage; then
