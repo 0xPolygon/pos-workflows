@@ -1,10 +1,7 @@
 #!/bin/bash
 
 # Utility functions for kurtosis stateless sync tests
-
-# =============================================================================
 # Configuration parameters - adjust these as needed
-# =============================================================================
 
 # Test configuration
 TARGET_BLOCK=${TARGET_BLOCK:-255}
@@ -112,7 +109,7 @@ setup_service_lists() {
 	echo "Setting up service lists based on kurtosis configuration..."
 
 	# Configuration summary
-	echo "Config: Validators ($VALIDATORS_START-$VALIDATORS_END), RPC services ($RPC_SERVICES_START-$RPC_SERVICES_END)"
+	echo "Config: Validators ($VALIDATORS_START-$VALIDATORS_END), RPC services ($RPC_SERVICES_START-$RPC_SERVICES_END + Erigon)"
 
 	VALIDATORS=()
 	RPC_SERVICES=()
@@ -147,53 +144,6 @@ verify_service_accessibility() {
 	done
 }
 
-# Function to check block hash consensus for a list of services
-check_block_hash_consensus() {
-	local target_block=$1
-	shift
-	local services=("$@")
-
-	local block_hashes=()
-	local reference_hash=""
-	local hash_mismatch=false
-
-	for service in "${services[@]}"; do
-		block_hash=$(get_block_hash $service $target_block)
-		if [ -n "$block_hash" ]; then
-			block_hashes+=("$service:$block_hash")
-
-			# Set reference hash from first service
-			if [ -z "$reference_hash" ]; then
-				reference_hash=$block_hash
-				echo "Reference hash from $service: $reference_hash"
-			else
-				# Compare with reference hash
-				if [ "$block_hash" != "$reference_hash" ]; then
-					echo "❌ Hash mismatch! $service has hash: $block_hash (expected: $reference_hash)"
-					hash_mismatch=true
-				else
-					echo "✅ $service has matching hash: $block_hash"
-				fi
-			fi
-		else
-			echo "❌ Failed to get hash for block $target_block from $service"
-			hash_mismatch=true
-		fi
-	done
-
-	if [ "$hash_mismatch" = true ]; then
-		echo "❌ Block hash verification failed for block $target_block"
-		echo "All hashes collected:"
-		for hash_entry in "${block_hashes[@]}"; do
-			echo "  $hash_entry"
-		done
-		return 1
-	else
-		echo "✅ All services have the same hash for block $target_block: $reference_hash"
-		return 0
-	fi
-}
-
 # Function to get maximum block number from a list of services
 get_max_block_from_services() {
 	local services=("$@")
@@ -207,30 +157,6 @@ get_max_block_from_services() {
 	done
 
 	echo $max_block
-}
-
-# Function to get minimum block number from a list of services
-get_min_block_from_services() {
-	local services=("$@")
-	local min_block=999999999
-	local block_numbers=()
-
-	for service in "${services[@]}"; do
-		block_num=$(get_block_number $service)
-		if [[ "$block_num" =~ ^[0-9]+$ ]]; then
-			block_numbers+=($block_num)
-			if [ $block_num -lt $min_block ]; then
-				min_block=$block_num
-			fi
-		fi
-	done
-
-	# Return 0 if no valid block numbers found
-	if [ ${#block_numbers[@]} -eq 0 ]; then
-		echo 0
-	else
-		echo $min_block
-	fi
 }
 
 # Function to start network latency in background
