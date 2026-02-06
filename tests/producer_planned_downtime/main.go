@@ -107,23 +107,33 @@ func main() {
 
 	var startDowntimeBlock, endDowntimeBlock int64
 
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 30; i++ {
 		startDowntimeBlock, endDowntimeBlock, err = getProducerDowntimeBlocks(span.ProducerValID)
 		if err != nil {
 			if strings.Contains(err.Error(), "no planned downtime found for producer id") {
 				fmt.Println("Downtime blocks not yet available, retrying...")
-				time.Sleep(1 * time.Second)
+				time.Sleep(2 * time.Second)
 				continue
 			}
 			panic(fmt.Sprintf("Failed to get producer downtime blocks: %v", err))
 		}
 
+		if startDowntimeBlock == 0 || endDowntimeBlock == 0 {
+			fmt.Println("Downtime blocks not yet available, retrying...")
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
 		if startDowntimeBlock < currentBlock {
-			time.Sleep(1 * time.Second)
+			time.Sleep(2 * time.Second)
 			continue
 		}
 
 		break
+	}
+
+	if startDowntimeBlock == 0 || endDowntimeBlock == 0 {
+		panic(fmt.Sprintf("Failed to get valid downtime blocks after retries: start=%d, end=%d", startDowntimeBlock, endDowntimeBlock))
 	}
 
 	fmt.Printf("Producer downtime blocks from Heimdall: Start: %d, End: %d\n", startDowntimeBlock, endDowntimeBlock)

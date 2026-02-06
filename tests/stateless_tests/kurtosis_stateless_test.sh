@@ -288,7 +288,7 @@ test_load_with_rotation() {
 	MONITOR_NODE="l2-el-4-bor-heimdall-v2-validator"
 	first_rpc_service="${RPC_SERVICES[0]}"
 	first_rpc_url=$(get_rpc_url "$first_rpc_service")
-	test_account="0x97538585a02A3f1B1297EB9979cE1b34ff953f1E"
+	test_account="0x74Ed6F462Ef4638dc10FFb05af285e8976Fb8DC9"
 	num_txs=6000
 	num_rotations=3
 
@@ -530,7 +530,7 @@ test_fastforward_sync() {
 
 	TARGET_VALIDATOR="l2-el-4-bor-heimdall-v2-validator"
 	REFERENCE_NODE="${VALIDATORS[0]}"
-	test_account="0x97538585a02A3f1B1297EB9979cE1b34ff953f1E"
+	test_account="0x74Ed6F462Ef4638dc10FFb05af285e8976Fb8DC9"
 	num_txs=3000
 
 	# Check if polycli is available
