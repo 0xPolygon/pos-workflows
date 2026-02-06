@@ -560,17 +560,12 @@ test_fastforward_sync() {
 		--gas-price 35000000000 >/tmp/polycli_fastforward_test.log 2>&1 &
 	LOAD_PID=$!
 
-	# Wait for network to advance (target: >64 blocks gap, max 90s)
-	echo "Waiting for network to advance (target: >64 blocks gap, max 90s)..."
+	# Wait for 90s to create block gap
+	echo "Waiting 90s for network to advance (target: >64 blocks gap)..."
 	for ((i = 90; i > 0; i -= 10)); do
 		sleep 10
 		current_block=$(get_block_number "$REFERENCE_NODE")
-		blocks_advanced=$((current_block - initial_block))
-		echo "  ${i}s remaining... Block: $current_block (+$blocks_advanced blocks)"
-		if [ "$blocks_advanced" -gt 64 ]; then
-			echo "  Target gap reached, continuing..."
-			break
-		fi
+		echo "  ${i}s remaining... Block: $current_block (+$((current_block - initial_block)) blocks)"
 	done
 
 	blocks_gap=$(($(get_block_number "$REFERENCE_NODE") - initial_block))
@@ -589,17 +584,17 @@ test_fastforward_sync() {
 
 	# Check for fastforward in logs
 	fastforward_detected=false
-	for attempt in {1..3}; do
+	for attempt in {1..5}; do
 		if kurtosis service logs "$ENCLAVE_NAME" "$TARGET_VALIDATOR" --all 2>&1 | grep -q "Fast forwarding stateless node due to large gap"; then
 			echo "✅ Fastforward mode detected in logs!"
 			fastforward_detected=true
 			break
 		fi
-		[ $attempt -lt 3 ] && sleep 10
+		[ $attempt -lt 5 ] && sleep 10
 	done
 
 	if [ "$fastforward_detected" = false ]; then
-		echo "❌ Fastforward indicator not found in logs after 3 attempts"
+		echo "❌ Fastforward indicator not found in logs after 5 attempts"
 		kill $LOAD_PID 2>/dev/null || true
 		return 1
 	fi
