@@ -1,10 +1,12 @@
 #!/bin/bash
 set -e
 
-# Kurtosis E2E smoke tests.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/bridge_test_utils.sh"
 
 ENCLAVE_NAME=${ENCLAVE_NAME:-"kurtosis-e2e"}
 HEIMDALL_SERVICE_NAME=${HEIMDALL_SERVICE_NAME:-"l2-cl-1-heimdall-v2-bor-validator"}
+TX_MINE_TIMEOUT=${TX_MINE_TIMEOUT:-120}
 
 # Service configuration for e2e tests
 # 4 validators (l2-el-1 to l2-el-4) + 2 RPC nodes (l2-el-5, l2-el-6)
@@ -43,8 +45,24 @@ get_block_hash() {
 	cast block "$block_number" --rpc-url "$rpc_url" --json 2>/dev/null | jq -r '.hash // empty'
 }
 
+wait_for_block() {
+	local target_block=$1
+	local service_name="${VALIDATORS[0]}"
+	echo "Waiting for block $target_block..."
+
+	while true; do
+		current_block=$(get_block_number "$service_name")
+		if [[ "$current_block" =~ ^[0-9]+$ ]] && [ "$current_block" -ge "$target_block" ]; then
+			echo "Reached block $current_block (target: $target_block)"
+			return 0
+		fi
+		echo "Current block: $current_block, waiting for $target_block..."
+		sleep 1
+	done
+}
+
 test_checkpoints() {
-	echo "Starting checkpoints test…"
+	echo "Starting checkpoints test..."
 
 	local http_url=$(get_http_url $HEIMDALL_SERVICE_NAME)
 
@@ -64,10 +82,10 @@ test_checkpoints() {
 		checkpointID=$(curl -s "${http_url}/checkpoints/latest" | jq -r '.checkpoint.id' 2>/dev/null || echo "null")
 
 		if [ "$checkpointID" != "null" ] && [ "$checkpointID" != "" ]; then
-			echo "✅ Checkpoint created! ID: $checkpointID"
+			echo "Checkpoint created, ID: $checkpointID"
 			return 0
 		else
-			echo "Current checkpoint: none (polling… attempt $((attempt + 1))/$max_attempts)"
+			echo "Current checkpoint: none (polling... attempt $((attempt + 1))/$max_attempts)"
 			sleep 5
 			((attempt++))
 		fi
@@ -78,7 +96,7 @@ test_checkpoints() {
 }
 
 test_milestones() {
-	echo "Starting milestones test…"
+	echo "Starting milestones test..."
 
 	local http_url=$(get_http_url $HEIMDALL_SERVICE_NAME)
 
@@ -110,10 +128,10 @@ test_milestones() {
 		fi
 
 		if [ "$current_count" -ge "$target_count" ]; then
-			echo "✅ Milestones target reached! Current count: $current_count (increased by $((current_count - initial_count)))"
+			echo "Milestones target reached, count: $current_count (+$((current_count - initial_count)))"
 			return 0
 		else
-			echo "Current milestones count: $current_count (need $((target_count - current_count)) more, polling… attempt $((attempt + 1))/$max_attempts)"
+			echo "Current milestones count: $current_count (need $((target_count - current_count)) more, polling... attempt $((attempt + 1))/$max_attempts)"
 			sleep 5
 			((attempt++))
 		fi
@@ -150,9 +168,9 @@ test_evm_opcode_coverage() {
 		return 1
 	fi
 
-	PRIVATE_KEY="0x2a4ae8c4c250917781d38d95dafbb0abe87ae2c9aea02ed7c7524685358e49c2"
-	SENDER_ADDR="0x97538585a02A3f1B1297EB9979cE1b34ff953f1E"
-	GAS_PRICE="35000000000"
+	PRIVATE_KEY="0xd40311b5a5ca5eaeb48dfba5403bde4993ece8eccf4190e98e19fcd4754260ea"
+	SENDER_ADDR="0x74Ed6F462Ef4638dc10FFb05af285e8976Fb8DC9"
+	GAS_PRICE="50000000000"
 
 	echo "Primary RPC: $first_rpc_service -> $first_rpc_url"
 	echo "Baseline RPC: $BASELINE_SERVICE -> $baseline_rpc_url"
@@ -190,7 +208,7 @@ test_evm_opcode_coverage() {
 		echo "❌ Contract not deployed at expected address: $CONTRACT_ADDR"
 		return 1
 	fi
-	echo "✅ LoadTester deployed at: $CONTRACT_ADDR"
+	echo "LoadTester deployed at: $CONTRACT_ADDR"
 
 	# Track results
 	declare -A tx_hashes
@@ -210,8 +228,8 @@ test_evm_opcode_coverage() {
 		"testSHA3" "testADDRESS" "testBALANCE" "testORIGIN" "testCALLER"
 		"testCALLVALUE" "testCALLDATALOAD" "testCALLDATASIZE" "testCALLDATACOPY"
 		"testCODESIZE" "testCODECOPY" "testGASPRICE" "testEXTCODESIZE"
-		"testRETURNDATASIZE" "testBLOCKHASH" "testCOINBASE" "testTIMESTAMP"
-		"testNUMBER" "testDIFFICULTY" "testGASLIMIT" "testCHAINID"
+		"testRETURNDATASIZE" "testBLOCKHASH" "testCOINBASE"
+		"testTIMESTAMP" "testNUMBER" "testDIFFICULTY" "testGASLIMIT" "testCHAINID"
 		"testSELFBALANCE" "testBASEFEE" "testMLOAD" "testMSTORE"
 		"testMSTORE8" "testSLOAD" "testSSTORE" "testMSIZE" "testGAS"
 		"testLOG0" "testLOG1" "testLOG2" "testLOG3" "testLOG4"
@@ -285,10 +303,37 @@ test_evm_opcode_coverage() {
 	done
 	echo "Sent $precompile_sent/10 precompile transactions"
 
-	# Wait and verify
+	# Wait for all transactions to be mined
 	echo ""
 	echo "Waiting for transactions to be mined..."
-	sleep 15
+
+	max_wait=$TX_MINE_TIMEOUT
+	waited=0
+	pending_txs=("${!tx_hashes[@]}")
+
+	while [ ${#pending_txs[@]} -gt 0 ] && [ $waited -lt $max_wait ]; do
+		still_pending=()
+		for test_name in "${pending_txs[@]}"; do
+			tx_hash="${tx_hashes[$test_name]}"
+			receipt=$(timeout 30 cast receipt "$tx_hash" --rpc-url "$first_rpc_url" --json 2>/dev/null)
+			if [ -z "$receipt" ] || [ "$receipt" = "null" ]; then
+				still_pending+=("$test_name")
+			fi
+		done
+		pending_txs=("${still_pending[@]}")
+
+		if [ ${#pending_txs[@]} -gt 0 ]; then
+			echo "Waiting for ${#pending_txs[@]} transactions... ($waited/$max_wait s)"
+			sleep 2
+			waited=$((waited + 2))
+		fi
+	done
+
+	if [ ${#pending_txs[@]} -gt 0 ]; then
+		echo "❌ Timeout: ${#pending_txs[@]} transactions not mined after ${max_wait}s"
+		return 1
+	fi
+	echo "All transactions mined"
 
 	echo ""
 	echo "Verifying transaction receipts..."
@@ -299,41 +344,37 @@ test_evm_opcode_coverage() {
 
 	for test_name in "${ALL_TESTS[@]}"; do
 		if [ "${tx_status[$test_name]}" = "send_failed" ]; then
-			echo "❌ $test_name (send failed)"
 			failed=$((failed + 1))
-			failed_tests+=("$test_name")
+			failed_tests+=("$test_name:send_failed")
 			continue
 		fi
 
 		tx_hash="${tx_hashes[$test_name]}"
-		receipt=$(cast receipt "$tx_hash" --rpc-url "$first_rpc_url" --json 2>/dev/null)
+		receipt=$(timeout 30 cast receipt "$tx_hash" --rpc-url "$first_rpc_url" --json 2>/dev/null)
 		status=$(echo "$receipt" | jq -r '.status // "0x0"')
 
 		if [ "$status" != "0x1" ]; then
-			echo "❌ $test_name (tx reverted)"
 			failed=$((failed + 1))
-			failed_tests+=("$test_name")
+			failed_tests+=("$test_name:reverted")
 			continue
 		fi
 
-		baseline_receipt=$(cast receipt "$tx_hash" --rpc-url "$baseline_rpc_url" --json 2>/dev/null)
+		baseline_receipt=$(timeout 30 cast receipt "$tx_hash" --rpc-url "$baseline_rpc_url" --json 2>/dev/null)
 		baseline_status=$(echo "$baseline_receipt" | jq -r '.status // empty')
 
 		if [ "$baseline_status" != "0x1" ]; then
-			echo "❌ $test_name (not on baseline)"
 			failed=$((failed + 1))
-			failed_tests+=("$test_name")
+			failed_tests+=("$test_name:not_on_baseline")
 			continue
 		fi
 
-		echo "✅ $test_name"
 		passed=$((passed + 1))
 	done
+	echo "All transaction receipts verified"
 
 	# Final sync verification
 	echo ""
 	echo "Final sync verification..."
-	sleep 10
 
 	REFERENCE_NODE="${VALIDATORS[0]}"
 	reference_block=$(get_block_number "$REFERENCE_NODE")
@@ -353,20 +394,21 @@ test_evm_opcode_coverage() {
 		echo "❌ Block hash mismatch at block $test_block"
 		return 1
 	fi
-	echo "✅ Baseline node in sync at block $test_block"
+	echo "Baseline node in sync at block $test_block"
 
 	# Results
 	total=$((passed + failed))
 	echo ""
-	echo "EVM opcode and precompile coverage results:"
-	echo "Total: $total | Passed: $passed | Failed: $failed"
+	echo "Results: $passed/$total passed"
 
 	if [ $failed -gt 0 ]; then
-		echo "❌ EVM opcode coverage test FAILED"
+		echo "Failed tests:"
+		for ft in "${failed_tests[@]}"; do
+			echo "  - $ft"
+		done
 		return 1
 	fi
 
-	echo "✅ EVM opcode coverage test PASSED"
 	return 0
 }
 
@@ -376,27 +418,39 @@ main() {
 	echo "Service: $HEIMDALL_SERVICE_NAME"
 	echo ""
 
-	if ! test_checkpoints; then
-		echo "❌ Checkpoints test failed"
-		exit 1
-	fi
-	echo "✅ Checkpoints test passed — Heimdall checkpoints are being created!"
-	echo ""
-
-	if ! test_milestones; then
-		echo "❌ Milestones test failed"
-		exit 1
-	fi
-	echo "✅ Milestones test passed — Heimdall milestones are being created!"
+	wait_for_block 128
 	echo ""
 
 	if ! test_evm_opcode_coverage; then
 		echo "❌ EVM opcode coverage test failed"
 		exit 1
 	fi
+	echo "✅ EVM opcode and precompile coverage test passed"
 	echo ""
 
-	echo "✅ All kurtosis smoke tests completed successfully!"
+	if ! test_milestones; then
+		echo "❌ Milestones test failed"
+		exit 1
+	fi
+	echo "✅ Milestones test passed"
+	echo ""
+
+	setup_pos_env
+	if ! test_bridge_l1_to_l2; then
+		echo "❌ Bridge test (MATIC/POL + ERC20 + ERC721) failed"
+		exit 1
+	fi
+	echo "✅ Bridge test (MATIC/POL + ERC20 + ERC721) passed"
+	echo ""
+
+	if ! test_checkpoints; then
+		echo "❌ Checkpoints test failed"
+		exit 1
+	fi
+	echo "✅ Checkpoints test passed"
+	echo ""
+
+	echo "✅ All smoke tests passed"
 	exit 0
 }
 
