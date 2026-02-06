@@ -559,12 +559,17 @@ test_fastforward_sync() {
 		--gas-price 35000000000 >/tmp/polycli_fastforward_test.log 2>&1 &
 	LOAD_PID=$!
 
-	# Wait for 90s to create block gap
-	echo "Waiting 90s for network to advance (target: >64 blocks gap)..."
+	# Wait for network to advance (target: >64 blocks gap, max 90s)
+	echo "Waiting for network to advance (target: >64 blocks gap, max 90s)..."
 	for ((i = 90; i > 0; i -= 10)); do
 		sleep 10
 		current_block=$(get_block_number "$REFERENCE_NODE")
-		echo "  ${i}s remaining... Block: $current_block (+$((current_block - initial_block)) blocks)"
+		blocks_advanced=$((current_block - initial_block))
+		echo "  ${i}s remaining... Block: $current_block (+$blocks_advanced blocks)"
+		if [ "$blocks_advanced" -gt 64 ]; then
+			echo "  Target gap reached, continuing..."
+			break
+		fi
 	done
 
 	blocks_gap=$(($(get_block_number "$REFERENCE_NODE") - initial_block))

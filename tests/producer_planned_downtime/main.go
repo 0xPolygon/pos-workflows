@@ -707,7 +707,7 @@ type spanResponse struct {
 }
 
 const (
-	minStartBlock                = 256
+	minStartBlock                = 128
 	downtimeStartSecondsInFuture = 180 // 3 minutes
 	downtimeDurationSeconds      = 180 // 3 minutes
 

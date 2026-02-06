@@ -312,7 +312,7 @@ test_evm_opcode_coverage() {
 		still_pending=()
 		for test_name in "${pending_txs[@]}"; do
 			tx_hash="${tx_hashes[$test_name]}"
-			receipt=$(cast receipt "$tx_hash" --rpc-url "$first_rpc_url" --json 2>/dev/null)
+			receipt=$(timeout 30 cast receipt "$tx_hash" --rpc-url "$first_rpc_url" --json 2>/dev/null)
 			if [ -z "$receipt" ] || [ "$receipt" = "null" ]; then
 				still_pending+=("$test_name")
 			fi
@@ -347,7 +347,7 @@ test_evm_opcode_coverage() {
 		fi
 
 		tx_hash="${tx_hashes[$test_name]}"
-		receipt=$(cast receipt "$tx_hash" --rpc-url "$first_rpc_url" --json 2>/dev/null)
+		receipt=$(timeout 30 cast receipt "$tx_hash" --rpc-url "$first_rpc_url" --json 2>/dev/null)
 		status=$(echo "$receipt" | jq -r '.status // "0x0"')
 
 		if [ "$status" != "0x1" ]; then
@@ -356,7 +356,7 @@ test_evm_opcode_coverage() {
 			continue
 		fi
 
-		baseline_receipt=$(cast receipt "$tx_hash" --rpc-url "$baseline_rpc_url" --json 2>/dev/null)
+		baseline_receipt=$(timeout 30 cast receipt "$tx_hash" --rpc-url "$baseline_rpc_url" --json 2>/dev/null)
 		baseline_status=$(echo "$baseline_receipt" | jq -r '.status // empty')
 
 		if [ "$baseline_status" != "0x1" ]; then
@@ -415,7 +415,7 @@ main() {
 	echo "Service: $HEIMDALL_SERVICE_NAME"
 	echo ""
 
-	wait_for_block 256
+	wait_for_block 128
 	echo ""
 
 	if ! test_evm_opcode_coverage; then
