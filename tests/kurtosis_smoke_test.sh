@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/bridge_test_utils.sh"
+
 ENCLAVE_NAME=${ENCLAVE_NAME:-"kurtosis-e2e"}
 HEIMDALL_SERVICE_NAME=${HEIMDALL_SERVICE_NAME:-"l2-cl-1-heimdall-v2-bor-validator"}
 TX_MINE_TIMEOUT=${TX_MINE_TIMEOUT:-120}
@@ -165,8 +168,8 @@ test_evm_opcode_coverage() {
 		return 1
 	fi
 
-	PRIVATE_KEY="0x2a4ae8c4c250917781d38d95dafbb0abe87ae2c9aea02ed7c7524685358e49c2"
-	SENDER_ADDR="0x97538585a02A3f1B1297EB9979cE1b34ff953f1E"
+	PRIVATE_KEY="0xd40311b5a5ca5eaeb48dfba5403bde4993ece8eccf4190e98e19fcd4754260ea"
+	SENDER_ADDR="0x74Ed6F462Ef4638dc10FFb05af285e8976Fb8DC9"
 	GAS_PRICE="50000000000"
 
 	echo "Primary RPC: $first_rpc_service -> $first_rpc_url"
@@ -430,6 +433,14 @@ main() {
 		exit 1
 	fi
 	echo "✅ Milestones test passed"
+	echo ""
+
+	setup_pos_env
+	if ! test_bridge_l1_to_l2; then
+		echo "❌ Bridge test (MATIC/POL + ERC20 + ERC721) failed"
+		exit 1
+	fi
+	echo "✅ Bridge test (MATIC/POL + ERC20 + ERC721) passed"
 	echo ""
 
 	if ! test_checkpoints; then

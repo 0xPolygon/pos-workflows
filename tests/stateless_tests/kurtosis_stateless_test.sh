@@ -4,6 +4,7 @@ set -e
 # Source utility functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/kurtosis_test_utils.sh"
+source "$SCRIPT_DIR/../bridge_test_utils.sh"
 
 echo "Starting kurtosis stateless sync tests..."
 
@@ -305,7 +306,7 @@ test_load_with_rotation() {
 	echo "Starting load test in background..."
 	polycli loadtest \
 		--rpc-url "$first_rpc_url" \
-		--private-key "0x2a4ae8c4c250917781d38d95dafbb0abe87ae2c9aea02ed7c7524685358e49c2" \
+		--private-key "0xd40311b5a5ca5eaeb48dfba5403bde4993ece8eccf4190e98e19fcd4754260ea" \
 		--verbosity 500 \
 		--requests $num_txs \
 		--rate-limit 100 \
@@ -554,7 +555,7 @@ test_fastforward_sync() {
 
 	echo "Starting uniswapv3 load test in background..."
 	polycli loadtest --rpc-url "$first_rpc_url" \
-		--private-key "0x2a4ae8c4c250917781d38d95dafbb0abe87ae2c9aea02ed7c7524685358e49c2" \
+		--private-key "0xd40311b5a5ca5eaeb48dfba5403bde4993ece8eccf4190e98e19fcd4754260ea" \
 		--verbosity 500 --requests $num_txs --rate-limit 100 --mode uniswapv3 \
 		--gas-price 35000000000 >/tmp/polycli_fastforward_test.log 2>&1 &
 	LOAD_PID=$!
@@ -648,6 +649,10 @@ test_extreme_network_latency_recovery || exit 1
 test_load_with_rotation || exit 1
 test_erigon_node_sync || exit 1
 test_fastforward_sync || exit 1
+
+# Run bridge test
+setup_pos_env
+test_bridge_l1_to_l2 || exit 1
 
 echo ""
 echo "✅ All stateless sync tests passed"
