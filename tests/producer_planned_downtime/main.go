@@ -66,7 +66,9 @@ func initEndpoints() {
 }
 
 func runSetup(stateFilePath string) {
-	os.Remove(stateFilePath)
+	if err := os.Remove(stateFilePath); err != nil && !os.IsNotExist(err) {
+		fmt.Printf("Warning: failed to remove stale state file %s: %v\n", stateFilePath, err)
+	}
 
 	if err := waitForBlock(minStartBlock, time.Second); err != nil {
 		panic(fmt.Sprintf("Failed waiting for min start block %d: %v", minStartBlock, err))
@@ -299,6 +301,12 @@ func runVerify(stateFilePath string) {
 	}
 
 	fmt.Println("Producer planned downtime verification completed successfully")
+
+	if err := os.Remove(stateFilePath); err != nil {
+		fmt.Printf("Warning: failed to remove state file %s: %v\n", stateFilePath, err)
+	} else {
+		fmt.Printf("Cleaned up state file %s\n", stateFilePath)
+	}
 }
 
 var endpointRegex = regexp.MustCompile(`([a-zA-Z0-9\.-]+:\d+)`)
