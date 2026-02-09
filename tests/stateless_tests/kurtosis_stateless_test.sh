@@ -557,7 +557,7 @@ test_fastforward_sync() {
 	polycli loadtest --rpc-url "$first_rpc_url" \
 		--private-key "0xd40311b5a5ca5eaeb48dfba5403bde4993ece8eccf4190e98e19fcd4754260ea" \
 		--verbosity 500 --requests $num_txs --rate-limit 100 --mode uniswapv3 \
-		--gas-price 35000000000 >/tmp/polycli_fastforward_test.log 2>&1 &
+		--gas-price 50000000000 >/tmp/polycli_fastforward_test.log 2>&1 &
 	LOAD_PID=$!
 
 	# Wait for 90s to create block gap

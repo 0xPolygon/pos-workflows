@@ -1,0 +1,61 @@
+polygon_pos_package:
+  network_params:
+    el_block_interval_seconds: 1
+
+  participants:
+    # 3 validators.
+    - kind: validator
+      cl_type: heimdall-v2
+      cl_image: heimdall-v2:local
+      el_type: bor
+      el_image: bor:local
+      el_bor_produce_witness: true
+      el_bor_sync_with_witness: false
+      count: 3
+
+    # 2 validators using stateless sync. Any of them having sync issue will cause the test to fail.
+    - kind: validator
+      cl_type: heimdall-v2
+      cl_image: heimdall-v2:local
+      el_type: bor
+      el_image: bor:local
+      el_bor_produce_witness: true
+      el_bor_sync_with_witness: true
+      count: 2
+
+    # 4 RPC nodes.
+    - kind: rpc
+      cl_type: heimdall-v2
+      cl_image: heimdall-v2:local
+      el_type: bor
+      el_image: bor:local
+      el_bor_produce_witness: false
+      el_bor_sync_with_witness: false
+      count: 1
+
+    - kind: rpc
+      cl_type: heimdall-v2
+      cl_image: heimdall-v2:local
+      el_type: bor
+      el_image: bor:local
+      el_bor_produce_witness: true
+      el_bor_sync_with_witness: false
+      count: 1
+
+    - kind: rpc
+      cl_type: heimdall-v2
+      cl_image: heimdall-v2:local
+      el_type: bor
+      el_image: bor:local
+      el_bor_produce_witness: true
+      el_bor_sync_with_witness: true
+      count: 1
+
+    - kind: rpc
+      cl_type: heimdall-v2
+      cl_image: heimdall-v2:local
+      el_type: erigon
+      el_image: 0xpolygon/erigon:latest
+      el_bor_produce_witness: false
+      el_bor_sync_with_witness: false
+      count: 1

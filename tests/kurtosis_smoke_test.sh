@@ -421,6 +421,10 @@ main() {
 	wait_for_block 128
 	echo ""
 
+	# Setup producer planned downtime early
+	"$SCRIPT_DIR/producer_planned_downtime/setup.sh"
+	echo ""
+
 	if ! test_evm_opcode_coverage; then
 		echo "❌ EVM opcode coverage test failed"
 		exit 1
