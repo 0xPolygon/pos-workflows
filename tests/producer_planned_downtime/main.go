@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,7 +19,32 @@ import (
 // 2. Waiting for downtime window to start
 // 3. Verifying blocks during downtime are NOT produced by the downed producer
 // 4. Verifying blocks after downtime resume normal production
+//
+// Supports --mode flag to split into two phases:
+//   - setup: schedule downtime tx, get downtime blocks, write state file
+//   - verify: read state file, wait for blocks, verify authors
+//   - (empty): run both phases sequentially (default)
 func main() {
+	mode := flag.String("mode", "", "run mode: setup, verify, or empty for both")
+	stateFilePath := flag.String("state-file", defaultStateFile, "path to state file for passing data between setup and verify")
+	flag.Parse()
+
+	initEndpoints()
+
+	switch *mode {
+	case "setup":
+		runSetup(*stateFilePath)
+	case "verify":
+		runVerify(*stateFilePath)
+	case "":
+		runSetup(*stateFilePath)
+		runVerify(*stateFilePath)
+	default:
+		panic(fmt.Sprintf("unknown mode: %s (expected setup, verify, or empty)", *mode))
+	}
+}
+
+func initEndpoints() {
 	enclave = os.Getenv("ENCLAVE_NAME")
 	if enclave == "" {
 		panic("environment variable ENCLAVE_NAME is not set")
@@ -30,20 +56,24 @@ func main() {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to get Bor RPC endpoint: %v", err))
 	}
-
 	fmt.Printf("Bor RPC endpoint: %s\n", borRPC)
-
-	if err = waitForBlock(minStartBlock, time.Second); err != nil {
-		panic(fmt.Sprintf("Failed waiting for min start block %d: %v", minStartBlock, err))
-	}
-	fmt.Printf("Reached min start block %d\n", minStartBlock)
 
 	heimdallREST, err = getHeimdallRest()
 	if err != nil {
 		panic(fmt.Sprintf("Failed to get Heimdall REST endpoint: %v", err))
 	}
-
 	fmt.Printf("Heimdall REST endpoint: %s\n", heimdallREST)
+}
+
+func runSetup(stateFilePath string) {
+	if err := os.Remove(stateFilePath); err != nil && !os.IsNotExist(err) {
+		fmt.Printf("Warning: failed to remove stale state file %s: %v\n", stateFilePath, err)
+	}
+
+	if err := waitForBlock(minStartBlock, time.Second); err != nil {
+		panic(fmt.Sprintf("Failed waiting for min start block %d: %v", minStartBlock, err))
+	}
+	fmt.Printf("Reached min start block %d\n", minStartBlock)
 
 	producerAddress, err := getProducerAddress(1)
 	if err != nil {
@@ -138,80 +168,116 @@ func main() {
 
 	fmt.Printf("Producer downtime blocks from Heimdall: Start: %d, End: %d\n", startDowntimeBlock, endDowntimeBlock)
 
-	if err := waitForBlock(startDowntimeBlock, time.Second); err != nil {
+	// Write state file for the verify phase
+	state := downtimeState{
+		StartDowntimeBlock: startDowntimeBlock,
+		EndDowntimeBlock:   endDowntimeBlock,
+		ProducerValID:      span.ProducerValID,
+		ProducerAddress:    span.ProducerAddress,
+	}
+
+	stateJSON, err := json.Marshal(state)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to marshal state: %v", err))
+	}
+
+	if err := os.WriteFile(stateFilePath, stateJSON, 0644); err != nil {
+		panic(fmt.Sprintf("Failed to write state file %s: %v", stateFilePath, err))
+	}
+
+	fmt.Printf("State written to %s\n", stateFilePath)
+	fmt.Println("Producer planned downtime setup completed successfully")
+}
+
+func runVerify(stateFilePath string) {
+	// Read state from setup phase
+	stateJSON, err := os.ReadFile(stateFilePath)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to read state file %s: %v", stateFilePath, err))
+	}
+
+	var state downtimeState
+	if err := json.Unmarshal(stateJSON, &state); err != nil {
+		panic(fmt.Sprintf("Failed to parse state file: %v", err))
+	}
+
+	fmt.Printf("Loaded state: downtime blocks %d-%d, producer ValID=%d Address=%s\n",
+		state.StartDowntimeBlock, state.EndDowntimeBlock, state.ProducerValID, state.ProducerAddress)
+
+	if err := waitForBlock(state.StartDowntimeBlock, time.Second); err != nil {
 		panic(fmt.Sprintf("Failed to wait for start downtime block: %v", err))
 	}
 
-	fmt.Printf("Downtime started at block %d\n", startDowntimeBlock)
+	fmt.Printf("Downtime started at block %d\n", state.StartDowntimeBlock)
 
 	if err := getSpans(); err != nil {
 		panic(fmt.Sprintf("Failed to refresh spans: %v", err))
 	}
 
 	// Check block before downtime
-	author, err := getBorBlockAuthor(startDowntimeBlock - 1)
+	author, err := getBorBlockAuthor(state.StartDowntimeBlock - 1)
 	if err != nil {
-		panic(fmt.Sprintf("Failed to get author for block %d: %v", startDowntimeBlock-1, err))
+		panic(fmt.Sprintf("Failed to get author for block %d: %v", state.StartDowntimeBlock-1, err))
 	}
 
-	expectedAuthor, err := getExpectedBlockAuthor(startDowntimeBlock - 1)
+	expectedAuthor, err := getExpectedBlockAuthor(state.StartDowntimeBlock - 1)
 	if err != nil {
-		panic(fmt.Sprintf("Failed to get expected author for block %d: %v", startDowntimeBlock-1, err))
+		panic(fmt.Sprintf("Failed to get expected author for block %d: %v", state.StartDowntimeBlock-1, err))
 	}
 
 	if !strings.EqualFold(author, expectedAuthor) {
-		panic(fmt.Sprintf("Block %d author mismatch: got %s, expected %s", startDowntimeBlock-1, author, expectedAuthor))
+		panic(fmt.Sprintf("Block %d author mismatch: got %s, expected %s", state.StartDowntimeBlock-1, author, expectedAuthor))
 	}
 
 	// Check first downtime block
-	author, err = getBorBlockAuthor(startDowntimeBlock)
+	author, err = getBorBlockAuthor(state.StartDowntimeBlock)
 	if err != nil {
-		panic(fmt.Sprintf("Failed to get author for block %d: %v", startDowntimeBlock, err))
+		panic(fmt.Sprintf("Failed to get author for block %d: %v", state.StartDowntimeBlock, err))
 	}
 
-	expectedAuthor, err = getExpectedBlockAuthor(startDowntimeBlock)
+	expectedAuthor, err = getExpectedBlockAuthor(state.StartDowntimeBlock)
 	if err != nil {
-		panic(fmt.Sprintf("Failed to get expected author for block %d: %v", startDowntimeBlock, err))
+		panic(fmt.Sprintf("Failed to get expected author for block %d: %v", state.StartDowntimeBlock, err))
 	}
 
 	if !strings.EqualFold(author, expectedAuthor) {
-		panic(fmt.Sprintf("Block %d author mismatch: got %s, expected different author due to downtime, expected %s", startDowntimeBlock, author, expectedAuthor))
+		panic(fmt.Sprintf("Block %d author mismatch: got %s, expected different author due to downtime, expected %s", state.StartDowntimeBlock, author, expectedAuthor))
 	}
 
-	if strings.EqualFold(author, span.ProducerAddress) {
-		panic(fmt.Sprintf("Block %d author should not be the downtime producer %s", startDowntimeBlock, span.ProducerAddress))
+	if strings.EqualFold(author, state.ProducerAddress) {
+		panic(fmt.Sprintf("Block %d author should not be the downtime producer %s", state.StartDowntimeBlock, state.ProducerAddress))
 	}
 
-	if err := waitForBlock(endDowntimeBlock, time.Second); err != nil {
+	if err := waitForBlock(state.EndDowntimeBlock, time.Second); err != nil {
 		panic(fmt.Sprintf("Failed to wait for end downtime block: %v", err))
 	}
 
-	fmt.Printf("Downtime ended at block %d\n", endDowntimeBlock)
+	fmt.Printf("Downtime ended at block %d\n", state.EndDowntimeBlock)
 
 	if err := getSpans(); err != nil {
 		panic(fmt.Sprintf("Failed to refresh spans: %v", err))
 	}
 
 	// Check last downtime block
-	author, err = getBorBlockAuthor(endDowntimeBlock)
+	author, err = getBorBlockAuthor(state.EndDowntimeBlock)
 	if err != nil {
-		panic(fmt.Sprintf("Failed to get author for block %d: %v", endDowntimeBlock, err))
+		panic(fmt.Sprintf("Failed to get author for block %d: %v", state.EndDowntimeBlock, err))
 	}
 
-	expectedAuthor, err = getExpectedBlockAuthor(endDowntimeBlock)
+	expectedAuthor, err = getExpectedBlockAuthor(state.EndDowntimeBlock)
 	if err != nil {
-		panic(fmt.Sprintf("Failed to get expected author for block %d: %v", endDowntimeBlock, err))
+		panic(fmt.Sprintf("Failed to get expected author for block %d: %v", state.EndDowntimeBlock, err))
 	}
 
 	if !strings.EqualFold(author, expectedAuthor) {
-		panic(fmt.Sprintf("Block %d author mismatch: got %s, expected different author due to downtime, expected %s", endDowntimeBlock, author, expectedAuthor))
+		panic(fmt.Sprintf("Block %d author mismatch: got %s, expected different author due to downtime, expected %s", state.EndDowntimeBlock, author, expectedAuthor))
 	}
 
-	if strings.EqualFold(author, span.ProducerAddress) {
-		panic(fmt.Sprintf("Block %d author should not be the downtime producer %s", endDowntimeBlock, span.ProducerAddress))
+	if strings.EqualFold(author, state.ProducerAddress) {
+		panic(fmt.Sprintf("Block %d author should not be the downtime producer %s", state.EndDowntimeBlock, state.ProducerAddress))
 	}
 
-	if err := waitForBlock(endDowntimeBlock+1, time.Second); err != nil {
+	if err := waitForBlock(state.EndDowntimeBlock+1, time.Second); err != nil {
 		panic(fmt.Sprintf("Failed to wait for block after downtime: %v", err))
 	}
 
@@ -220,21 +286,27 @@ func main() {
 	}
 
 	// Check block after downtime
-	author, err = getBorBlockAuthor(endDowntimeBlock + 1)
+	author, err = getBorBlockAuthor(state.EndDowntimeBlock + 1)
 	if err != nil {
-		panic(fmt.Sprintf("Failed to get author for block %d: %v", endDowntimeBlock+1, err))
+		panic(fmt.Sprintf("Failed to get author for block %d: %v", state.EndDowntimeBlock+1, err))
 	}
 
-	expectedAuthor, err = getExpectedBlockAuthor(endDowntimeBlock + 1)
+	expectedAuthor, err = getExpectedBlockAuthor(state.EndDowntimeBlock + 1)
 	if err != nil {
-		panic(fmt.Sprintf("Failed to get expected author for block %d: %v", endDowntimeBlock+1, err))
+		panic(fmt.Sprintf("Failed to get expected author for block %d: %v", state.EndDowntimeBlock+1, err))
 	}
 
 	if !strings.EqualFold(author, expectedAuthor) {
-		panic(fmt.Sprintf("Block %d author mismatch: got %s, expected %s", endDowntimeBlock+1, author, expectedAuthor))
+		panic(fmt.Sprintf("Block %d author mismatch: got %s, expected %s", state.EndDowntimeBlock+1, author, expectedAuthor))
 	}
 
-	fmt.Println("Producer planned downtime test completed successfully")
+	fmt.Println("Producer planned downtime verification completed successfully")
+
+	if err := os.Remove(stateFilePath); err != nil {
+		fmt.Printf("Warning: failed to remove state file %s: %v\n", stateFilePath, err)
+	} else {
+		fmt.Printf("Cleaned up state file %s\n", stateFilePath)
+	}
 }
 
 var endpointRegex = regexp.MustCompile(`([a-zA-Z0-9\.-]+:\d+)`)
@@ -502,7 +574,7 @@ func execSetProducerDowntime(startDowntime, endDowntime, producerID int64, produ
 	cmdStr := fmt.Sprintf(heimdallProducerPlannedDowntimeCmd, producerAddress, startDowntime, endDowntime)
 	output, err := execCommandInPod(cmdStr, fmt.Sprintf(heimdallValPod, producerID))
 	if err != nil {
-		return fmt.Errorf("failed to estimate downtime range: %v", err)
+		return fmt.Errorf("failed to set producer planned downtime: %v", err)
 	}
 
 	fmt.Println(output)
@@ -691,8 +763,15 @@ func execCommandInPod(cmdStr, podName string) (string, error) {
 
 var enclave, heimdallREST, borRPC string
 
-// Add a global slice to hold parsed spans
 var spans []spanInfo
+
+// State persisted between setup and verify phases
+type downtimeState struct {
+	StartDowntimeBlock int64  `json:"start_downtime_block"`
+	EndDowntimeBlock   int64  `json:"end_downtime_block"`
+	ProducerValID      int64  `json:"producer_val_id"`
+	ProducerAddress    string `json:"producer_address"`
+}
 
 // Structs for parsed span data we store
 type spanInfo struct {
@@ -717,6 +796,8 @@ type spanResponse struct {
 }
 
 const (
+	defaultStateFile = "/tmp/producer_planned_downtime_state.json"
+
 	minStartBlock                = 128
 	downtimeStartSecondsInFuture = 180 // 3 minutes
 	downtimeDurationSeconds      = 180 // 3 minutes
