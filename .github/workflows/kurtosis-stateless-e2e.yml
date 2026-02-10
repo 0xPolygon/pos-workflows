@@ -136,7 +136,9 @@ jobs:
       - name: Run stateless e2e tests
         id: stateless-tests
         working-directory: pos-workflows/tests/stateless_tests
-        run: bash kurtosis_stateless_test.sh
+        run: |
+          exit 1  # TODO: remove, testing network diagnostics action
+          bash kurtosis_stateless_test.sh
 
       - name: Collect network diagnostics and dump devnet state
         if: always() && steps.stateless-tests.outcome == 'failure'
