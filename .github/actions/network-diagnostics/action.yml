@@ -1,0 +1,223 @@
+name: network-diagnostics
+description: Collect network diagnostics from all l2-el and l2-cl services in a Kurtosis enclave
+
+inputs:
+  enclave_name:
+    description: The name of the kurtosis enclave
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Check if the enclave exists
+      id: enclave-check
+      shell: bash
+      run: |
+        if kurtosis enclave inspect "${{ inputs.enclave_name }}" > /dev/null 2>&1; then
+          echo "ENCLAVE_EXISTS=true" >> "${GITHUB_OUTPUT}"
+        else
+          echo "ENCLAVE_EXISTS=false" >> "${GITHUB_OUTPUT}"
+          echo "Enclave ${{ inputs.enclave_name }} does not exist — skipping diagnostics."
+        fi
+
+    - name: Collect network diagnostics
+      if: steps.enclave-check.outputs.ENCLAVE_EXISTS == 'true'
+      shell: bash
+      run: |
+        set +e
+        ENCLAVE="${{ inputs.enclave_name }}"
+        OUT="./network-diagnostics.txt"
+
+        {
+        	echo "========================================"
+        	echo "  NETWORK DIAGNOSTICS"
+        	echo "  Enclave: ${ENCLAVE}"
+        	echo "  Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+        	echo "========================================"
+        	echo ""
+
+        	# --- Service availability summary ---
+        	echo "----------------------------------------"
+        	echo "  SERVICE AVAILABILITY"
+        	echo "----------------------------------------"
+        	inspect_output=$(kurtosis enclave inspect "${ENCLAVE}" 2>&1)
+        	# Filter to only actual running/stopped services (not file artifacts like -config, -keys, -genesis, etc.)
+        	echo "${inspect_output}" | grep -E "l2-el-|l2-cl-" | grep -E "RUNNING|STOPPED" | grep -v "rabbitmq" | while read -r line; do
+        		service=$(echo "${line}" | awk '{print $2}')
+        		status=$(echo "${line}" | awk '{print $NF}')
+        		if [[ "${status}" == "STOPPED" ]]; then
+        			echo "  SERVICE DOWN: ${service} is STOPPED"
+        		else
+        			echo "  OK: ${service} is ${status}"
+        		fi
+        	done
+        	echo ""
+
+        	# --- Discover actual l2-el and l2-cl services (only those with RUNNING/STOPPED status) ---
+        	el_services=$(echo "${inspect_output}" | grep -E "l2-el-" | grep -E "RUNNING|STOPPED" | awk '{print $2}' | sort -u)
+        	cl_services=$(echo "${inspect_output}" | grep -E "l2-cl-" | grep -E "RUNNING|STOPPED" | grep -v "rabbitmq" | awk '{print $2}' | sort -u)
+
+        	# --- EL diagnostics ---
+        	for svc in ${el_services}; do
+        		echo "========================================"
+        		echo "  EL: ${svc}"
+        		echo "========================================"
+
+        		rpc_url=$(kurtosis port print "${ENCLAVE}" "${svc}" rpc 2>/dev/null)
+        		if [[ -z "${rpc_url}" ]]; then
+        			echo "  ERROR: could not resolve rpc port for ${svc}"
+        			echo ""
+        			continue
+        		fi
+
+        		if [[ "${svc}" == *"-bor-"* ]]; then
+        			# Bor: /health returns rich node info
+        			echo "--- /health ---"
+        			curl -sf --max-time 10 "${rpc_url}/health" 2>/dev/null | jq . 2>/dev/null || echo "  ERROR: /health query failed"
+        			echo ""
+        		else
+        			# Erigon: /health is just a pass/fail checker, use JSON-RPC instead
+        			echo "--- eth_blockNumber ---"
+        			curl -sf --max-time 10 -X POST -H "Content-Type: application/json" \
+        				-d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+        				"${rpc_url}" 2>/dev/null | jq . 2>/dev/null || echo "  ERROR: eth_blockNumber query failed"
+        			echo ""
+
+        			echo "--- net_peerCount ---"
+        			curl -sf --max-time 10 -X POST -H "Content-Type: application/json" \
+        				-d '{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":1}' \
+        				"${rpc_url}" 2>/dev/null | jq . 2>/dev/null || echo "  ERROR: net_peerCount query failed"
+        			echo ""
+        		fi
+        	done
+
+        	# --- CL (Heimdall) diagnostics ---
+        	for svc in ${cl_services}; do
+        		echo "========================================"
+        		echo "  CL: ${svc}"
+        		echo "========================================"
+
+        		rest_url=$(kurtosis port print "${ENCLAVE}" "${svc}" http 2>/dev/null)
+        		rpc_url=$(kurtosis port print "${ENCLAVE}" "${svc}" rpc 2>/dev/null)
+
+        		if [[ -z "${rest_url}" ]]; then
+        			echo "  ERROR: could not resolve http (REST) port for ${svc}"
+        		else
+        			echo "--- /health ---"
+        			curl -sf --max-time 10 "${rest_url}/health" 2>/dev/null | jq . 2>/dev/null || echo "  ERROR: /health query failed"
+        			echo ""
+
+        			echo "--- /checkpoints/latest ---"
+        			curl -sf --max-time 10 "${rest_url}/checkpoints/latest" 2>/dev/null | jq . 2>/dev/null || echo "  ERROR: /checkpoints/latest query failed"
+        			echo ""
+
+        			echo "--- /milestones/latest ---"
+        			curl -sf --max-time 10 "${rest_url}/milestones/latest" 2>/dev/null | jq . 2>/dev/null || echo "  ERROR: /milestones/latest query failed"
+        			echo ""
+
+        			echo "--- /bor/spans/latest ---"
+        			curl -sf --max-time 10 "${rest_url}/bor/spans/latest" 2>/dev/null | jq . 2>/dev/null || echo "  ERROR: /bor/spans/latest query failed"
+        			echo ""
+
+        			echo "--- /clerk/event-records/list (last 50) ---"
+        			curl -sf --max-time 10 "${rest_url}/clerk/event-records/list?page=1&limit=50" 2>/dev/null | jq . 2>/dev/null || echo "  ERROR: /clerk/event-records/list query failed"
+        			echo ""
+        		fi
+
+        		if [[ -z "${rpc_url}" ]]; then
+        			echo "  ERROR: could not resolve rpc (CometBFT) port for ${svc}"
+        		else
+        			echo "--- CometBFT status ---"
+        			curl -sf --max-time 10 -X POST -H "Content-Type: application/json" \
+        				-d '{"jsonrpc":"2.0","method":"status","params":[],"id":1}' \
+        				"${rpc_url}" 2>/dev/null | jq . 2>/dev/null || echo "  ERROR: CometBFT status query failed"
+        			echo ""
+
+        		fi
+        	done
+
+        	echo "========================================"
+        	echo "  END OF DIAGNOSTICS"
+        	echo "========================================"
+        } >"${OUT}" 2>&1
+
+        echo "Diagnostics written to ${OUT}"
+
+    - name: Upload network diagnostics
+      if: steps.enclave-check.outputs.ENCLAVE_EXISTS == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: network-diagnostics-${{ github.run_id }}
+        path: ./network-diagnostics.txt
+        retention-days: 2
+
+    - name: Dump devnet state
+      if: steps.enclave-check.outputs.ENCLAVE_EXISTS == 'true'
+      shell: bash
+      run: |
+        set +e
+        ENCLAVE="${{ inputs.enclave_name }}"
+        DUMP_DIR="./devnet-state"
+        rm -rf "${DUMP_DIR}"
+        mkdir -p "${DUMP_DIR}"
+
+        echo "Collecting devnet state from containers..."
+
+        # Build a map using full UUIDs to resolve docker container names
+        inspect_full=$(kurtosis enclave inspect "${ENCLAVE}" --full-uuids 2>&1)
+
+        # Helper: resolve docker container name for a kurtosis service (Name--FullUUID)
+        get_container() {
+        	local svc="$1"
+        	echo "${inspect_full}" | awk -v s="${svc}" '$2 == s {print s "--" $1}'
+        }
+
+        # --- EL state (only actual services, not file artifacts) ---
+        el_services=$(echo "${inspect_full}" | grep -E "l2-el-" | grep -E "RUNNING|STOPPED" | awk '{print $2}' | sort -u)
+        for svc in ${el_services}; do
+        	container=$(get_container "${svc}")
+        	if [[ -z "${container}" ]]; then
+        		echo "  WARN: could not resolve container for ${svc}, skipping"
+        		continue
+        	fi
+
+        	svc_dir="${DUMP_DIR}/${svc}"
+        	mkdir -p "${svc_dir}"
+
+        	if [[ "${svc}" == *"-bor-"* ]]; then
+        		echo "  Copying Bor config+data from ${svc}..."
+        		docker cp "${container}:/etc/bor" "${svc_dir}/config" 2>/dev/null || echo "  WARN: failed to copy /etc/bor from ${svc}"
+        		docker cp "${container}:/var/lib/bor" "${svc_dir}/data" 2>/dev/null || echo "  WARN: failed to copy /var/lib/bor from ${svc}"
+        	else
+        		echo "  Copying Erigon config+data from ${svc}..."
+        		docker cp "${container}:/etc/erigon" "${svc_dir}/config" 2>/dev/null || echo "  WARN: failed to copy /etc/erigon from ${svc}"
+        		docker cp "${container}:/var/lib/erigon" "${svc_dir}/data" 2>/dev/null || echo "  WARN: failed to copy /var/lib/erigon from ${svc}"
+        	fi
+        done
+
+        # --- CL state (only actual services, not file artifacts or rabbitmq) ---
+        cl_services=$(echo "${inspect_full}" | grep -E "l2-cl-" | grep -E "RUNNING|STOPPED" | grep -v "rabbitmq" | awk '{print $2}' | sort -u)
+        for svc in ${cl_services}; do
+        	container=$(get_container "${svc}")
+        	if [[ -z "${container}" ]]; then
+        		echo "  WARN: could not resolve container for ${svc}, skipping"
+        		continue
+        	fi
+
+        	svc_dir="${DUMP_DIR}/${svc}"
+        	mkdir -p "${svc_dir}"
+
+        	echo "  Copying Heimdall config+data from ${svc}..."
+        	docker cp "${container}:/etc/heimdall" "${svc_dir}/config" 2>/dev/null || echo "  WARN: failed to copy /etc/heimdall from ${svc}"
+        	docker cp "${container}:/var/lib/heimdall" "${svc_dir}/data" 2>/dev/null || echo "  WARN: failed to copy /var/lib/heimdall from ${svc}"
+        done
+
+        echo "Devnet state collected in ${DUMP_DIR}"
+
+    - name: Upload devnet state
+      if: steps.enclave-check.outputs.ENCLAVE_EXISTS == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: devnet-state-${{ github.run_id }}
+        path: ./devnet-state/
+        retention-days: 2
