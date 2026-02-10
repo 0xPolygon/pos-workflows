@@ -1,5 +1,5 @@
-name: network-diagnostics
-description: Collect network diagnostics from all l2-el and l2-cl services in a Kurtosis enclave
+name: network-diagnostics-and-state-dump
+description: Collect network diagnostics and dump devnet state from all l2-el and l2-cl services in a Kurtosis enclave
 
 inputs:
   enclave_name:
