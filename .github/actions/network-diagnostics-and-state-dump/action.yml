@@ -172,8 +172,18 @@ runs:
         	echo "${inspect_full}" | awk -v s="${svc}" '$2 == s {print s "--" $1}'
         }
 
-        # --- EL state (only actual services, not file artifacts) ---
+        # --- Discover services ---
         el_services=$(echo "${inspect_full}" | grep -E "l2-el-" | grep -E "RUNNING|STOPPED" | awk '{print $2}' | sort -u)
+        cl_services=$(echo "${inspect_full}" | grep -E "l2-cl-" | grep -E "RUNNING|STOPPED" | grep -v "rabbitmq" | awk '{print $2}' | sort -u)
+
+        # --- Stop all services in parallel for a consistent snapshot ---
+        echo "Stopping all services..."
+        for svc in ${el_services} ${cl_services}; do
+        	kurtosis service stop "${ENCLAVE}" "${svc}" 2>/dev/null &
+        done
+        wait
+
+        # --- EL state ---
         for svc in ${el_services}; do
         	container=$(get_container "${svc}")
         	if [[ -z "${container}" ]]; then
@@ -195,8 +205,7 @@ runs:
         	fi
         done
 
-        # --- CL state (only actual services, not file artifacts or rabbitmq) ---
-        cl_services=$(echo "${inspect_full}" | grep -E "l2-cl-" | grep -E "RUNNING|STOPPED" | grep -v "rabbitmq" | awk '{print $2}' | sort -u)
+        # --- CL state ---
         for svc in ${cl_services}; do
         	container=$(get_container "${svc}")
         	if [[ -z "${container}" ]]; then
