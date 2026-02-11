@@ -57,6 +57,25 @@ runs:
         	el_services=$(echo "${inspect_output}" | grep -E "l2-el-" | grep -E "RUNNING|STOPPED" | awk '{print $2}' | sort -u)
         	cl_services=$(echo "${inspect_output}" | grep -E "l2-cl-" | grep -E "RUNNING|STOPPED" | grep -v "rabbitmq" | awk '{print $2}' | sort -u)
 
+        	# --- Head block numbers (quick summary) ---
+        	echo "----------------------------------------"
+        	echo "  HEAD BLOCK NUMBERS"
+        	echo "----------------------------------------"
+        	for svc in ${el_services}; do
+        		rpc_url=$(kurtosis port print "${ENCLAVE}" "${svc}" rpc 2>/dev/null)
+        		if [[ -n "${rpc_url}" ]]; then
+        			block_num=$(cast block-number --rpc-url "${rpc_url}" 2>/dev/null)
+        			if [[ -n "${block_num}" ]]; then
+        				echo "  ${svc}: ${block_num}"
+        			else
+        				echo "  ${svc}: ERROR (could not fetch block number)"
+        			fi
+        		else
+        			echo "  ${svc}: ERROR (could not resolve rpc port)"
+        		fi
+        	done
+        	echo ""
+
         	# --- EL diagnostics ---
         	for svc in ${el_services}; do
         		echo "========================================"
