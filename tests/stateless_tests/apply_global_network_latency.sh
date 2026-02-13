@@ -25,7 +25,7 @@ run_pumba() {
 	echo "Running Pumba netem for '${prefix}' with delay ${delay}ms and jitter ${jitter}ms on targets: ${TARGET_FLAGS[*]}"
 	docker run -i --rm \
 		-v /var/run/docker.sock:/var/run/docker.sock \
-		gaiaadm/pumba:0.10.1 netem "${TARGET_FLAGS[@]}" --tc-image gaiadocker/iproute2 --duration "$NETWORK_LATENCY_DURATION" --interface "$INTERFACE" delay --time "$delay" --jitter "$jitter" "re2:^${prefix}"
+		gaiaadm/pumba:0.11.6 netem "${TARGET_FLAGS[@]}" --tc-image gaiadocker/iproute2 --duration "$NETWORK_LATENCY_DURATION" --interface "$INTERFACE" delay --time "$delay" --jitter "$jitter" "re2:^${prefix}"
 }
 
 # Trap SIGINT (Ctrl+C) to kill background jobs and exit gracefully
