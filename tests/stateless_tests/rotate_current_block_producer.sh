@@ -6,7 +6,7 @@ set -e
 KURTOSIS_CONTAINER="l2-cl-1-heimdall-v2-bor-validator"
 KURTOSIS_PORT_ID="http"
 
-PUMBA_IMAGE="gaiaadm/pumba:0.11.6"
+PUMBA_IMAGE="gaiaadm/pumba:0.10.1"
 TC_IMAGE="gaiadocker/iproute2"
 INTERFACE="eth0"
 DELAY_TIME=10000
