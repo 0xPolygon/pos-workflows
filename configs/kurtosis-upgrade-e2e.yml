@@ -1,0 +1,56 @@
+polygon_pos_package:
+  network_params:
+    el_block_interval_seconds: 1
+
+  participants:
+    # 2 regular validators.
+    - kind: validator
+      cl_type: heimdall-v2
+      cl_image: 0xpolygon/heimdall-v2:latest
+      el_type: bor
+      el_image: 0xpolygon/bor:latest
+      count: 2
+
+    # 1 validator producing witness.
+    - kind: validator
+      cl_type: heimdall-v2
+      cl_image: 0xpolygon/heimdall-v2:latest
+      el_type: bor
+      el_image: 0xpolygon/bor:latest
+      el_bor_produce_witness: true
+      count: 1
+
+    # 1 stateless validator.
+    - kind: validator
+      cl_type: heimdall-v2
+      cl_image: 0xpolygon/heimdall-v2:latest
+      el_type: bor
+      el_image: 0xpolygon/bor:latest
+      el_bor_sync_with_witness: true
+      count: 1
+
+    # 1 regular sentry.
+    - kind: rpc
+      cl_type: heimdall-v2
+      cl_image: 0xpolygon/heimdall-v2:latest
+      el_type: bor
+      el_image: 0xpolygon/bor:latest
+      count: 1
+
+    # 1 sentry producing witness.
+    - kind: rpc
+      cl_type: heimdall-v2
+      cl_image: 0xpolygon/heimdall-v2:latest
+      el_type: bor
+      el_image: 0xpolygon/bor:latest
+      el_bor_produce_witness: true
+      count: 1
+
+    # 1 stateless sentry.
+    - kind: rpc
+      cl_type: heimdall-v2
+      cl_image: 0xpolygon/heimdall-v2:latest
+      el_type: bor
+      el_image: 0xpolygon/bor:latest
+      el_bor_sync_with_witness: true
+      count: 1
