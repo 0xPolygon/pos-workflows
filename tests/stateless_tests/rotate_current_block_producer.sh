@@ -6,8 +6,7 @@ set -e
 KURTOSIS_CONTAINER="l2-cl-1-heimdall-v2-bor-validator"
 KURTOSIS_PORT_ID="http"
 
-PUMBA_IMAGE="ghcr.io/alexei-led/pumba:0.12.3"
-TC_IMAGE="gaiadocker/iproute2"
+TC_IMAGE="gaiadocker/iproute2:3.3"
 INTERFACE="eth0"
 DELAY_TIME=10000
 JITTER=1000
@@ -76,14 +75,14 @@ fi
 
 echo "Found container: $CONTAINER_NAME"
 
-# Build target flags for l2-el containers
-TARGET_FLAGS=()
+# Build target IPs for l2-el containers
+TARGET_IPS=()
 echo "Finding IPs for containers with prefix 'l2-el'..."
 for name in $(docker ps --format "{{.Names}}" | grep "^l2-el"); do
 	echo "  Checking container: $name"
 	ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$name")
 	if [[ -n "$ip" ]]; then
-		TARGET_FLAGS+=(--target "${ip}/32")
+		TARGET_IPS+=("$ip")
 		echo "    ✓ Adding target: $name ($ip)"
 	else
 		echo "    ✗ No IP found for: $name"
@@ -92,29 +91,34 @@ for name in $(docker ps --format "{{.Names}}" | grep "^l2-el"); do
 	fi
 done
 
-if [[ ${#TARGET_FLAGS[@]} -eq 0 ]]; then
+if [[ ${#TARGET_IPS[@]} -eq 0 ]]; then
 	echo "❌ No l2-el containers found to target"
 	exit 1
 fi
 
+# Build tc commands
+TC_CMDS="tc qdisc add dev $INTERFACE root handle 1: prio priomap 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"
+TC_CMDS="$TC_CMDS && tc qdisc add dev $INTERFACE parent 1:1 handle 10: sfq"
+TC_CMDS="$TC_CMDS && tc qdisc add dev $INTERFACE parent 1:2 handle 20: sfq"
+TC_CMDS="$TC_CMDS && tc qdisc add dev $INTERFACE parent 1:3 handle 30: netem delay ${DELAY_TIME}ms ${JITTER}ms"
+
+for ip in "${TARGET_IPS[@]}"; do
+	TC_CMDS="$TC_CMDS && tc filter add dev $INTERFACE parent 1:0 protocol ip u32 match ip dst ${ip}/32 flowid 1:3"
+done
+
 echo "Applying ${DELAY_TIME}ms network delay for ${DURATION} to l2-el containers only..."
-
-echo 'Command to run: '
-echo "docker run -i --rm -v /var/run/docker.sock:/var/run/docker.sock $PUMBA_IMAGE netem ${TARGET_FLAGS[*]} --tc-image $TC_IMAGE --duration $DURATION --interface $INTERFACE delay --time $DELAY_TIME --jitter $JITTER $CONTAINER_NAME"
-
-target_flags="${TARGET_FLAGS[@]}"
-# target_flags=""
+echo "Command: docker run --rm --net container:$CONTAINER_NAME --cap-add NET_ADMIN --entrypoint sh $TC_IMAGE -c \"$TC_CMDS\""
 
 date +"%Y-%m-%d %H:%M:%S"
 
-# Run the pumba command with target flags
-docker run -i --rm \
-	-v /var/run/docker.sock:/var/run/docker.sock \
-	"$PUMBA_IMAGE" netem \
-	$target_flags \
-	--tc-image "$TC_IMAGE" \
-	--duration "$DURATION" \
-	--interface "$INTERFACE" \
-	delay --time "$DELAY_TIME" --jitter "$JITTER" "$CONTAINER_NAME"
+# Apply tc rules
+docker run --rm --net "container:$CONTAINER_NAME" --cap-add NET_ADMIN --entrypoint sh "$TC_IMAGE" -c "$TC_CMDS"
 
-echo "✅ Delay command applied to container: $CONTAINER_NAME (targeting l2-el containers only)"
+echo "tc rules applied, waiting for duration: $DURATION"
+sleep "$DURATION"
+
+# Clean up tc rules
+echo "Removing tc rules from $CONTAINER_NAME..."
+docker run --rm --net "container:$CONTAINER_NAME" --cap-add NET_ADMIN "$TC_IMAGE" qdisc del dev "$INTERFACE" root 2>/dev/null || true
+
+echo "✅ Delay command applied and cleaned up for container: $CONTAINER_NAME (targeting l2-el containers only)"
