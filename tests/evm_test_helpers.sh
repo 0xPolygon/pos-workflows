@@ -110,6 +110,53 @@ declare -A PRECOMPILES=(
 )
 
 # ==============================================================================
+# Shared send helper with retry
+# ==============================================================================
+
+# Send a transaction with retry on transient failures.
+# Handles nonce desync by re-fetching from RPC on failure.
+# Sets TX_RESULT to the tx hash on success, empty on failure.
+# Updates current_nonce on success.
+#
+# Usage: cast_send_with_retry <rpc_url> <private_key> <cast send args...>
+cast_send_with_retry() {
+	local rpc_url="$1"
+	local private_key="$2"
+	shift 2
+
+	local max_retries=3
+	local attempt=0
+	TX_RESULT=""
+
+	while [ $attempt -lt $max_retries ]; do
+		local tx_hash
+		tx_hash=$(cast send "$@" \
+			--rpc-url "$rpc_url" \
+			--private-key "$private_key" \
+			--gas-price "$GAS_PRICE" \
+			--nonce "$current_nonce" \
+			--legacy \
+			--async 2>/dev/null) || true
+
+		if [[ "$tx_hash" =~ ^0x[a-fA-F0-9]{64}$ ]]; then
+			TX_RESULT="$tx_hash"
+			current_nonce=$((current_nonce + 1))
+			return 0
+		fi
+
+		attempt=$((attempt + 1))
+		if [ $attempt -lt $max_retries ]; then
+			sleep 1
+			current_nonce=$(cast nonce "$SENDER_ADDR" --rpc-url "$rpc_url" --block pending 2>/dev/null) || true
+		fi
+	done
+
+	# Final nonce re-sync after all retries exhausted
+	current_nonce=$(cast nonce "$SENDER_ADDR" --rpc-url "$rpc_url" --block pending 2>/dev/null) || true
+	return 1
+}
+
+# ==============================================================================
 # evm-stress functions
 # ==============================================================================
 
@@ -202,21 +249,11 @@ send_evm_stress_transactions() {
 		local calldata
 		calldata=$(cast abi-encode 'f(uint256,uint256,uint256)' "$action" 10000 0)
 
-		local tx_hash
-		tx_hash=$(cast send "$CONTRACT_ADDR" "$calldata" \
-			--rpc-url "$rpc_url" \
-			--private-key "$private_key" \
-			--gas-price "$GAS_PRICE" \
-			--gas-limit 5000000 \
-			--nonce "$current_nonce" \
-			--legacy \
-			--async 2>/dev/null) || true
-
-		if [[ "$tx_hash" =~ ^0x[a-fA-F0-9]{64}$ ]]; then
-			tx_hashes["$name"]="$tx_hash"
+		if cast_send_with_retry "$rpc_url" "$private_key" \
+			"$CONTRACT_ADDR" "$calldata" --gas-limit 5000000; then
+			tx_hashes["$name"]="$TX_RESULT"
 			tx_status["$name"]="pending"
 			sent_count=$((sent_count + 1))
-			current_nonce=$((current_nonce + 1))
 		else
 			tx_status["$name"]="send_failed"
 		fi
@@ -286,23 +323,13 @@ send_opcode_transactions() {
 	local sent_count=0
 
 	for opcode in "${OPCODES[@]}"; do
-		local tx_hash
-		tx_hash=$(cast send "$LOAD_TESTER_ADDR" "${opcode}(uint256)" 10 \
-			--rpc-url "$rpc_url" \
-			--private-key "$private_key" \
-			--gas-price "$GAS_PRICE" \
-			--nonce "$current_nonce" \
-			--legacy \
-			--async 2>/dev/null) || true
-
-		if [[ "$tx_hash" =~ ^0x[a-fA-F0-9]{64}$ ]]; then
-			tx_hashes["$opcode"]="$tx_hash"
+		if cast_send_with_retry "$rpc_url" "$private_key" \
+			"$LOAD_TESTER_ADDR" "${opcode}(uint256)" 10; then
+			tx_hashes["$opcode"]="$TX_RESULT"
 			tx_status["$opcode"]="pending"
 			sent_count=$((sent_count + 1))
-			current_nonce=$((current_nonce + 1))
 		else
 			tx_status["$opcode"]="send_failed"
-			current_nonce=$(cast nonce "$SENDER_ADDR" --rpc-url "$rpc_url" --block pending 2>/dev/null) || true
 		fi
 	done
 	echo "Sent $sent_count/60 opcode transactions"
@@ -322,23 +349,13 @@ send_precompile_transactions() {
 
 	for name in "${PRECOMPILE_NAMES[@]}"; do
 		IFS='|' read -r sig args <<<"${PRECOMPILES[$name]}"
-		local tx_hash
-		tx_hash=$(cast send "$LOAD_TESTER_ADDR" "$sig" $args \
-			--rpc-url "$rpc_url" \
-			--private-key "$private_key" \
-			--gas-price "$GAS_PRICE" \
-			--nonce "$current_nonce" \
-			--legacy \
-			--async 2>/dev/null) || true
-
-		if [[ "$tx_hash" =~ ^0x[a-fA-F0-9]{64}$ ]]; then
-			tx_hashes["$name"]="$tx_hash"
+		if cast_send_with_retry "$rpc_url" "$private_key" \
+			"$LOAD_TESTER_ADDR" "$sig" $args; then
+			tx_hashes["$name"]="$TX_RESULT"
 			tx_status["$name"]="pending"
 			precompile_sent=$((precompile_sent + 1))
-			current_nonce=$((current_nonce + 1))
 		else
 			tx_status["$name"]="send_failed"
-			current_nonce=$(cast nonce "$SENDER_ADDR" --rpc-url "$rpc_url" --block pending 2>/dev/null) || true
 		fi
 	done
 	echo "Sent $precompile_sent/10 precompile transactions"
