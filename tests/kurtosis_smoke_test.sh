@@ -3,6 +3,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/bridge_test_utils.sh"
+source "$SCRIPT_DIR/evm_test_helpers.sh"
 
 ENCLAVE_NAME=${ENCLAVE_NAME:-"kurtosis-e2e"}
 HEIMDALL_SERVICE_NAME=${HEIMDALL_SERVICE_NAME:-"l2-cl-1-heimdall-v2-bor-validator"}
@@ -142,7 +143,7 @@ test_milestones() {
 }
 
 # EVM opcode and precompile coverage test
-# Tests all EVM opcodes and precompiled contracts using polycli's LoadTester contract
+# Tests all EVM opcodes and precompiled contracts using polycli's LoadTester and evm-stress contracts
 # Verifies transactions on both primary RPC and baseline node (stable release)
 test_evm_opcode_coverage() {
 	echo "Starting evm opcode and precompile coverage test..."
@@ -175,172 +176,51 @@ test_evm_opcode_coverage() {
 	echo "Primary RPC: $first_rpc_service -> $first_rpc_url"
 	echo "Baseline RPC: $BASELINE_SERVICE -> $baseline_rpc_url"
 
-	# Deploy LoadTester contract
-	echo ""
-	echo "Deploying LoadTester contract..."
-
-	deploy_nonce=$(cast nonce "$SENDER_ADDR" --rpc-url "$first_rpc_url")
-	if ! [[ "$deploy_nonce" =~ ^[0-9]+$ ]]; then
-		echo "❌ Failed to get nonce for deployment"
-		return 1
-	fi
-	echo "Deploying with nonce: $deploy_nonce"
-
-	if ! polycli loadtest --rpc-url "$first_rpc_url" \
-		--private-key "$PRIVATE_KEY" \
-		--verbosity 500 \
-		--requests 1 \
-		--gas-price "$GAS_PRICE" \
-		--mode d 2>&1; then
-		echo "❌ polycli loadtest failed"
-		return 1
-	fi
-
-	CONTRACT_ADDR=$(cast compute-address "$SENDER_ADDR" --nonce "$deploy_nonce" | grep -oE "0x[a-fA-F0-9]{40}")
-
-	if [ -z "$CONTRACT_ADDR" ]; then
-		echo "❌ Failed to compute contract address"
-		return 1
-	fi
-
-	contract_code=$(cast code "$CONTRACT_ADDR" --rpc-url "$first_rpc_url" 2>/dev/null)
-	if [ -z "$contract_code" ] || [ "$contract_code" = "0x" ]; then
-		echo "❌ Contract not deployed at expected address: $CONTRACT_ADDR"
-		return 1
-	fi
-	echo "LoadTester deployed at: $CONTRACT_ADDR"
-
-	# Track results
 	declare -A tx_hashes
 	declare -A tx_status
 	failed_tests=()
+	current_nonce=0
 
-	# EVM opcodes (60 total)
-	echo ""
-	echo "Sending EVM opcode transactions (60 functions)..."
-
-	OPCODES=(
-		"testADD" "testMUL" "testSUB" "testDIV" "testSDIV"
-		"testMOD" "testSMOD" "testADDMOD" "testMULMOD" "testEXP"
-		"testSIGNEXTEND" "testLT" "testGT" "testSLT" "testSGT"
-		"testEQ" "testISZERO" "testAND" "testOR" "testXOR"
-		"testNOT" "testBYTE" "testSHL" "testSHR" "testSAR"
-		"testSHA3" "testADDRESS" "testBALANCE" "testORIGIN" "testCALLER"
-		"testCALLVALUE" "testCALLDATALOAD" "testCALLDATASIZE" "testCALLDATACOPY"
-		"testCODESIZE" "testCODECOPY" "testGASPRICE" "testEXTCODESIZE"
-		"testRETURNDATASIZE" "testBLOCKHASH" "testCOINBASE"
-		"testTIMESTAMP" "testNUMBER" "testDIFFICULTY" "testGASLIMIT" "testCHAINID"
-		"testSELFBALANCE" "testBASEFEE" "testMLOAD" "testMSTORE"
-		"testMSTORE8" "testSLOAD" "testSSTORE" "testMSIZE" "testGAS"
-		"testLOG0" "testLOG1" "testLOG2" "testLOG3" "testLOG4"
-	)
-
-	current_nonce=$(cast nonce "$SENDER_ADDR" --rpc-url "$first_rpc_url")
-	sent_count=0
-
-	for opcode in "${OPCODES[@]}"; do
-		tx_hash=$(cast send "$CONTRACT_ADDR" "${opcode}(uint256)" 10 \
-			--rpc-url "$first_rpc_url" \
-			--private-key "$PRIVATE_KEY" \
-			--gas-price "$GAS_PRICE" \
-			--nonce "$current_nonce" \
-			--legacy \
-			--async 2>/dev/null)
-
-		if [[ "$tx_hash" =~ ^0x[a-fA-F0-9]{64}$ ]]; then
-			tx_hashes["$opcode"]="$tx_hash"
-			tx_status["$opcode"]="pending"
-			sent_count=$((sent_count + 1))
-			current_nonce=$((current_nonce + 1))
-		else
-			tx_status["$opcode"]="send_failed"
-		fi
-	done
-	echo "Sent $sent_count/60 opcode transactions"
-
-	# Precompiles (10 total)
-	echo ""
-	echo "Sending precompile transactions (10 functions)..."
-
-	MODEXP_INPUT="0x000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000001020305"
-	ECADD_INPUT="0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-	ECMUL_INPUT="0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002"
-	ECRECOVER_INPUT="0x456e9aea5e197a1f1af7a3e85a3212fa4049a3ba34c2289b4c860fc0b0c64ef3000000000000000000000000000000000000000000000000000000000000001c9242685bf161793cc25603c231bc2f568eb630ea16aa137d2664ac80388256084f8ae3bd7535248d0bd448298cc2e2071e56992d0774dc340c368ae950852ada"
-	P256_INPUT="0x4cee90eb86eaa050036147a12d49004b6b9c72bd725d39d4785011fe190f0b4da73bd4903f0ce3b639bbbf6e8e80d16931ff4bcf5993d58468e8fb19086e8cac36dbcd03009df8c59286b162af3bd7fcc0450c9aa81be5d10d312af6c66b1d604aebd3099c618202fcfe16ae7770b0c49ab5eadf74b754204a3bb6060e44eff37618b065f9832de4ca6ca971a7a1adc826d0f7c00181a5fb2ddf79ae00b4e10e"
-
-	declare -A PRECOMPILES=(
-		["testSHA256"]="testSHA256(bytes)|0xdeadbeef"
-		["testRipemd160"]="testRipemd160(bytes)|0xdeadbeef"
-		["testIdentity"]="testIdentity(bytes)|0xdeadbeef"
-		["testBlake2f"]="testBlake2f(bytes)|0x"
-		["testModExp"]="testModExp(bytes)|$MODEXP_INPUT"
-		["testECAdd"]="testECAdd(bytes)|$ECADD_INPUT"
-		["testECMul"]="testECMul(bytes)|$ECMUL_INPUT"
-		["testECPairing"]="testECPairing(bytes)|0x"
-		["testECRecover"]="testECRecover(bytes)|$ECRECOVER_INPUT"
-		["testP256Verify"]="testP256Verify(bytes)|$P256_INPUT"
-	)
-
-	precompile_sent=0
-	for name in testSHA256 testRipemd160 testIdentity testBlake2f testModExp testECAdd testECMul testECPairing testECRecover testP256Verify; do
-		IFS='|' read -r sig args <<<"${PRECOMPILES[$name]}"
-		tx_hash=$(cast send "$CONTRACT_ADDR" "$sig" $args \
-			--rpc-url "$first_rpc_url" \
-			--private-key "$PRIVATE_KEY" \
-			--gas-price "$GAS_PRICE" \
-			--nonce "$current_nonce" \
-			--legacy \
-			--async 2>/dev/null)
-
-		if [[ "$tx_hash" =~ ^0x[a-fA-F0-9]{64}$ ]]; then
-			tx_hashes["$name"]="$tx_hash"
-			tx_status["$name"]="pending"
-			precompile_sent=$((precompile_sent + 1))
-			current_nonce=$((current_nonce + 1))
-		else
-			tx_status["$name"]="send_failed"
-		fi
-	done
-	echo "Sent $precompile_sent/10 precompile transactions"
-
-	# Wait for all transactions to be mined
-	echo ""
-	echo "Waiting for transactions to be mined..."
-
-	max_wait=$TX_MINE_TIMEOUT
-	waited=0
-	pending_txs=("${!tx_hashes[@]}")
-
-	while [ ${#pending_txs[@]} -gt 0 ] && [ $waited -lt $max_wait ]; do
-		still_pending=()
-		for test_name in "${pending_txs[@]}"; do
-			tx_hash="${tx_hashes[$test_name]}"
-			receipt=$(timeout 30 cast receipt "$tx_hash" --rpc-url "$first_rpc_url" --json 2>/dev/null)
-			if [ -z "$receipt" ] || [ "$receipt" = "null" ]; then
-				still_pending+=("$test_name")
-			fi
-		done
-		pending_txs=("${still_pending[@]}")
-
-		if [ ${#pending_txs[@]} -gt 0 ]; then
-			echo "Waiting for ${#pending_txs[@]} transactions... ($waited/$max_wait s)"
-			sleep 2
-			waited=$((waited + 2))
-		fi
-	done
-
-	if [ ${#pending_txs[@]} -gt 0 ]; then
-		echo "❌ Timeout: ${#pending_txs[@]} transactions not mined after ${max_wait}s"
+	# Deploy and send polycli LoadTester transactions
+	if ! deploy_load_tester "$first_rpc_url"; then
+		echo "❌ LoadTester deployment failed"
 		return 1
 	fi
-	echo "All transactions mined"
 
+	send_opcode_transactions "$first_rpc_url"
+	send_precompile_transactions "$first_rpc_url"
+
+	# Deploy and send evm-stress transactions
+	if ! deploy_evm_stress "$first_rpc_url"; then
+		echo "❌ evm-stress deployment failed"
+		return 1
+	fi
+
+	send_evm_stress_transactions "$first_rpc_url"
+
+	# Wait for all transactions to be mined
+	wait_for_mining "$first_rpc_url"
+
+	# Check for timeouts
+	for test_name in "${!tx_status[@]}"; do
+		if [ "${tx_status[$test_name]}" = "timeout" ]; then
+			echo "❌ Some transactions timed out"
+			return 1
+		fi
+	done
+
+	# Verify receipts on primary and baseline nodes
 	echo ""
 	echo "Verifying transaction receipts..."
 	passed=0
 	failed=0
 
-	ALL_TESTS=("${OPCODES[@]}" "testSHA256" "testRipemd160" "testIdentity" "testBlake2f" "testModExp" "testECAdd" "testECMul" "testECPairing" "testECRecover" "testP256Verify")
+	EVM_STRESS_NAMES=()
+	for action in "${ACTION_CODES[@]}"; do
+		EVM_STRESS_NAMES+=("${EVM_STRESS_ACTIONS[$action]}")
+	done
+
+	ALL_TESTS=("${OPCODES[@]}" "${PRECOMPILE_NAMES[@]}" "${EVM_STRESS_NAMES[@]}")
 
 	for test_name in "${ALL_TESTS[@]}"; do
 		if [ "${tx_status[$test_name]}" = "send_failed" ]; then
