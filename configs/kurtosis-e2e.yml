@@ -20,9 +20,10 @@ polygon_pos_package:
       count: 1
 
     # Baseline RPC node using stable images for opcode coverage testing.
+    # We use the same heimdall-v2 image, but we use a stable bor image.
     - kind: rpc
       cl_type: heimdall-v2
-      cl_image: 0xpolygon/heimdall-v2:0.6.0
+      cl_image: heimdall-v2:local
       el_type: bor
-      el_image: 0xpolygon/bor:2.6.0
+      el_image: 0xpolygon/bor:2.6.3
       count: 1
