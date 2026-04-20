@@ -34,6 +34,7 @@ setup_pos_env() {
 		[[ -z "${L1_STAKE_MANAGER_PROXY_ADDRESS:-}" ]] ||
 		[[ -z "${L1_STAKING_INFO_ADDRESS:-}" ]] ||
 		[[ -z "${L1_MATIC_TOKEN_ADDRESS:-}" ]] ||
+		[[ -z "${L1_POL_TOKEN_ADDRESS:-}" ]] ||
 		[[ -z "${L1_ERC20_TOKEN_ADDRESS:-}" ]] ||
 		[[ -z "${L1_ERC721_TOKEN_ADDRESS:-}" ]] ||
 		[[ -z "${L2_STATE_RECEIVER_ADDRESS:-}" ]] ||
@@ -57,6 +58,9 @@ setup_pos_env() {
 
 		export L1_MATIC_TOKEN_ADDRESS=${L1_MATIC_TOKEN_ADDRESS:-$(echo "${matic_contract_addresses}" | jq --raw-output '.root.tokens.MaticToken')}
 		echo "L1_MATIC_TOKEN_ADDRESS=${L1_MATIC_TOKEN_ADDRESS}"
+
+		export L1_POL_TOKEN_ADDRESS=${L1_POL_TOKEN_ADDRESS:-$(echo "${matic_contract_addresses}" | jq --raw-output '.root.tokens.PolToken')}
+		echo "L1_POL_TOKEN_ADDRESS=${L1_POL_TOKEN_ADDRESS}"
 
 		export L1_ERC20_TOKEN_ADDRESS=${L1_ERC20_TOKEN_ADDRESS:-$(echo "${matic_contract_addresses}" | jq --raw-output '.root.tokens.TestToken')}
 		echo "L1_ERC20_TOKEN_ADDRESS=${L1_ERC20_TOKEN_ADDRESS}"

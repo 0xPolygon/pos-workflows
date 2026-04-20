@@ -35,18 +35,18 @@ test_add_validator() {
 	echo "Funding validator with ETH..."
 	cast send --rpc-url "${L1_RPC_URL}" --private-key "${PRIVATE_KEY}" --value 1ether "${validator_address}"
 
-	echo "Funding validator with MATIC/POL..."
+	echo "Funding validator with POL..."
 	local deposit_amount heimdall_fee_amount funding_amount
 	deposit_amount=$(cast to-unit 1ether wei)
 	heimdall_fee_amount=$(cast to-unit 1ether wei)
 	funding_amount=$((deposit_amount + heimdall_fee_amount))
 
 	cast send --rpc-url "${L1_RPC_URL}" --private-key "${PRIVATE_KEY}" \
-		"${L1_MATIC_TOKEN_ADDRESS}" "transfer(address,uint)" "${validator_address}" "${funding_amount}"
+		"${L1_POL_TOKEN_ADDRESS}" "transfer(address,uint)" "${validator_address}" "${funding_amount}"
 
 	echo "Approving StakeManagerProxy..."
 	cast send --rpc-url "${L1_RPC_URL}" --private-key "${validator_private_key}" \
-		"${L1_MATIC_TOKEN_ADDRESS}" "approve(address,uint)" "${L1_STAKE_MANAGER_PROXY_ADDRESS}" "${funding_amount}"
+		"${L1_POL_TOKEN_ADDRESS}" "approve(address,uint)" "${L1_STAKE_MANAGER_PROXY_ADDRESS}" "${funding_amount}"
 
 	echo "Staking for new validator..."
 	cast send --rpc-url "${L1_RPC_URL}" --private-key "${validator_private_key}" \
@@ -78,13 +78,13 @@ test_update_validator_stake() {
 	local stake_amount
 	stake_amount=$(cast to-unit 1ether wei)
 
-	echo "Funding validator with MATIC/POL..."
+	echo "Funding validator with POL..."
 	cast send --rpc-url "${L1_RPC_URL}" --private-key "${PRIVATE_KEY}" \
-		"${L1_MATIC_TOKEN_ADDRESS}" "transfer(address,uint)" "${validator_address}" "${stake_amount}"
+		"${L1_POL_TOKEN_ADDRESS}" "transfer(address,uint)" "${validator_address}" "${stake_amount}"
 
 	echo "Approving StakeManagerProxy..."
 	cast send --rpc-url "${L1_RPC_URL}" --private-key "${validator_private_key}" \
-		"${L1_MATIC_TOKEN_ADDRESS}" "approve(address,uint)" "${L1_STAKE_MANAGER_PROXY_ADDRESS}" "${stake_amount}"
+		"${L1_POL_TOKEN_ADDRESS}" "approve(address,uint)" "${L1_STAKE_MANAGER_PROXY_ADDRESS}" "${stake_amount}"
 
 	echo "Restaking..."
 	cast send --rpc-url "${L1_RPC_URL}" --private-key "${validator_private_key}" \
@@ -137,13 +137,13 @@ test_delegate() {
 	echo "Funding delegator with ETH..."
 	cast send --rpc-url "${L1_RPC_URL}" --private-key "${PRIVATE_KEY}" --value 1ether "${delegator_address}"
 
-	echo "Funding delegator with MATIC/POL..."
+	echo "Funding delegator with POL..."
 	cast send --rpc-url "${L1_RPC_URL}" --private-key "${PRIVATE_KEY}" \
-		"${L1_MATIC_TOKEN_ADDRESS}" "transfer(address,uint)" "${delegator_address}" "${delegation_amount}"
+		"${L1_POL_TOKEN_ADDRESS}" "transfer(address,uint)" "${delegator_address}" "${delegation_amount}"
 
 	echo "Approving StakeManager..."
 	cast send --rpc-url "${L1_RPC_URL}" --private-key "${delegator_private_key}" \
-		"${L1_MATIC_TOKEN_ADDRESS}" "approve(address,uint)" "${L1_STAKE_MANAGER_PROXY_ADDRESS}" "${delegation_amount}"
+		"${L1_POL_TOKEN_ADDRESS}" "approve(address,uint)" "${L1_STAKE_MANAGER_PROXY_ADDRESS}" "${delegation_amount}"
 
 	echo "Delegating ${delegation_amount} wei to validator ${validator_id}..."
 	cast send --rpc-url "${L1_RPC_URL}" --private-key "${delegator_private_key}" \
