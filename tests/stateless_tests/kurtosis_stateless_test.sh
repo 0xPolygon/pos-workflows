@@ -522,21 +522,150 @@ test_erigon_node_sync() {
 	fi
 }
 
+# Wait for heimdall milestone consensus to be healthy before disruptive tests.
+# Returns 0 if a milestone is stored within the timeout, else 1.
+wait_for_heimdall_milestone_progress() {
+	local service=$1
+	local timeout=${2:-60}
+	local min_progress=${3:-1}
+
+	echo "Pre-check: waiting up to ${timeout}s for heimdall milestones to advance on $service..."
+	local initial_finalized
+	initial_finalized=$(get_finalized_block "$service")
+	if ! [[ "$initial_finalized" =~ ^[0-9]+$ ]]; then
+		echo "⚠️  Could not read finalized block from $service"
+		return 1
+	fi
+
+	local deadline=$((SECONDS + timeout))
+	while [ $SECONDS -lt $deadline ]; do
+		local current_finalized
+		current_finalized=$(get_finalized_block "$service")
+		if [[ "$current_finalized" =~ ^[0-9]+$ ]] && [ $((current_finalized - initial_finalized)) -ge $min_progress ]; then
+			echo "  ✅ Finalized block advanced from $initial_finalized to $current_finalized"
+			return 0
+		fi
+		sleep 3
+	done
+
+	echo "  ❌ Finalized block did not advance within ${timeout}s (still at $initial_finalized)"
+	return 1
+}
+
+# Query the heimdall HTTP API for the end_block of its latest stored milestone.
+# Returns the integer end_block on stdout, or empty string on failure.
+# Endpoint: GET http://<heimdall>/milestones/latest → {"milestone":{"end_block":"<num>",...}}
+# (see bor's consensus/bor/heimdall/client.go:91 — fetchMilestone = "/milestones/latest")
+get_heimdall_latest_milestone_end_block() {
+	local heimdall_service=$1
+	local heimdall_url
+	heimdall_url=$(kurtosis port print "$ENCLAVE_NAME" "$heimdall_service" http 2>/dev/null)
+	if [ -z "$heimdall_url" ]; then
+		echo ""
+		return
+	fi
+	curl -s --max-time 5 "${heimdall_url}/milestones/latest" 2>/dev/null |
+		jq -r '.milestone.end_block // empty' 2>/dev/null
+}
+
+# Wait until the target node's paired heimdall has caught up to within <max_lag>
+# of the reference heimdall's latest milestone end_block. This is the critical
+# precondition for bor's fast-forward: the first milestone event bor receives
+# via WS comes from its paired heimdall, so if that heimdall is behind, the
+# first event's end_block is too low to trigger fast-forward — and bor falls
+# through to normal sync without ever running bytecode sync, no matter how
+# long the test waits.
+wait_for_paired_heimdall_to_catch_up() {
+	local paired_heimdall=$1
+	local reference_heimdall=$2
+	local timeout=${3:-60}
+	local max_lag=${4:-5}
+
+	echo "Waiting up to ${timeout}s for $paired_heimdall to catch up to $reference_heimdall (max lag: $max_lag)..."
+	local deadline=$((SECONDS + timeout))
+	local last_logged=-1
+	while [ $SECONDS -lt $deadline ]; do
+		local ref_end paired_end
+		ref_end=$(get_heimdall_latest_milestone_end_block "$reference_heimdall")
+		paired_end=$(get_heimdall_latest_milestone_end_block "$paired_heimdall")
+
+		if [[ "$ref_end" =~ ^[0-9]+$ ]] && [[ "$paired_end" =~ ^[0-9]+$ ]]; then
+			local lag=$((ref_end - paired_end))
+			if [ "$lag" -ne "$last_logged" ]; then
+				echo "  ref=$ref_end, paired=$paired_end, lag=$lag"
+				last_logged=$lag
+			fi
+			if [ "$lag" -le "$max_lag" ] && [ "$lag" -ge "-$max_lag" ]; then
+				echo "  ✅ $paired_heimdall is caught up (lag=$lag)"
+				return 0
+			fi
+		fi
+		sleep 2
+	done
+
+	echo "  ❌ $paired_heimdall did not catch up to $reference_heimdall within ${timeout}s"
+	return 1
+}
+
 # Test 7: Fastforward sync verification
+#
+# Stops a stateless validator, lets the network advance >64 blocks (> bor's
+# FastForwardThreshold of 64), restarts the validator, and verifies that bor's
+# milestone-driven fast-forward path ran. That path is what triggers bytecode-only
+# snap sync for contracts created during the missing window (see
+# needsBytecodeSync in bor's eth/downloader/bor_downloader.go), so we strictly
+# gate on the "Fast forwarding stateless node due to large gap" log line —
+# catching up via bor's fallback (normal sync) would skip bytecode sync entirely
+# and defeat the purpose of the test.
+#
+# Determinism requirements, because the fast-forward log only fires if the
+# FIRST milestone bor receives via WS has gap > FastForwardThreshold:
+#   1) The heimdall cluster must be producing milestones throughout the test.
+#      We verify this before stopping and throughout the 90s advance window.
+#   2) The target's PAIRED heimdall (which bor subscribes to on restart) must
+#      be caught up to the cluster's latest milestone. If it's lagged, the
+#      first WS event bor sees has end_block that's too low, and bor takes
+#      the fallback path — skipping bytecode sync entirely. We verify this
+#      immediately before restart by querying both heimdalls' /milestones/latest.
+#   3) Any prolonged heimdall stall aborts the test with a clear diagnostic
+#      rather than surfacing as a fast-forward flake.
 test_fastforward_sync() {
 	echo ""
 	echo "Test 7: Fastforward sync verification"
 	echo ""
 
 	TARGET_VALIDATOR="l2-el-4-bor-heimdall-v2-validator"
+	# Heimdall paired with the target bor. This is the one bor-4 opens a WS
+	# subscription to on restart, so it MUST be caught up on milestones — if
+	# it's behind, the first WS event bor sees has end_block too low to
+	# trigger fast-forward.
+	TARGET_HEIMDALL="l2-cl-4-heimdall-v2-bor-validator"
 	REFERENCE_NODE="${VALIDATORS[0]}"
+	REFERENCE_HEIMDALL="l2-cl-1-heimdall-v2-bor-validator"
 	test_account="0x74Ed6F462Ef4638dc10FFb05af285e8976Fb8DC9"
 	num_txs=3000
+	# Max time heimdall may go without producing a milestone before we consider
+	# consensus stalled. Bor's fast-forward wait is 30s, so the test is only
+	# deterministic if heimdall produces well inside that window.
+	max_milestone_gap_seconds=20
+	# Time to wait for the fast-forward log after restart. Bor's internal
+	# fast-forward wait is 30s; give the milestone WS event a little time to
+	# propagate to logs.
+	ff_log_timeout=45
+	catch_up_timeout=180
 
 	# Check if polycli is available
 	if ! command -v polycli &>/dev/null; then
 		echo "⚠️  polycli not found, skipping fastforward sync test"
 		return 0
+	fi
+
+	# Pre-check: heimdall must be producing milestones before we disrupt the
+	# network. If not, the fast-forward path cannot trigger and the test is
+	# guaranteed to flake.
+	if ! wait_for_heimdall_milestone_progress "$REFERENCE_NODE" 60 1; then
+		echo "❌ Heimdall milestone consensus is not healthy — aborting fastforward test"
+		return 1
 	fi
 
 	first_rpc_url=$(get_rpc_url "${RPC_SERVICES[0]}")
@@ -560,17 +689,54 @@ test_fastforward_sync() {
 		--gas-price 50000000000 >/tmp/polycli_fastforward_test.log 2>&1 &
 	LOAD_PID=$!
 
-	# Wait for 90s to create block gap
+	# Advance the network while monitoring heimdall milestone progress. If
+	# milestones stall for longer than max_milestone_gap_seconds, bor's 30s
+	# fast-forward wait will expire on restart — abort with a clear diagnostic
+	# instead of proceeding to a guaranteed flake.
 	echo "Waiting 90s for network to advance (target: >64 blocks gap)..."
+	last_finalized=$(get_finalized_block "$REFERENCE_NODE")
+	last_finalized_progress_at=$SECONDS
 	for ((i = 90; i > 0; i -= 10)); do
 		sleep 10
 		current_block=$(get_block_number "$REFERENCE_NODE")
-		echo "  ${i}s remaining... Block: $current_block (+$((current_block - initial_block)) blocks)"
+		current_finalized=$(get_finalized_block "$REFERENCE_NODE")
+		echo "  ${i}s remaining... Block: $current_block (+$((current_block - initial_block)) blocks), finalized: $current_finalized"
+
+		if [[ "$current_finalized" =~ ^[0-9]+$ ]] && [ "$current_finalized" -gt "$last_finalized" ]; then
+			last_finalized=$current_finalized
+			last_finalized_progress_at=$SECONDS
+			continue
+		fi
+
+		if [ $((SECONDS - last_finalized_progress_at)) -gt $max_milestone_gap_seconds ]; then
+			echo "❌ Heimdall finalized block has not advanced for $((SECONDS - last_finalized_progress_at))s (stuck at $last_finalized) — milestone consensus is stalled"
+			echo "   Aborting before restart: bor's 30s fast-forward wait would time out, forcing the fallback path (no bytecode sync)"
+			kill $LOAD_PID 2>/dev/null || true
+			return 1
+		fi
 	done
 
 	blocks_gap=$(($(get_block_number "$REFERENCE_NODE") - initial_block))
 	echo "Network advanced by $blocks_gap blocks"
-	[ "$blocks_gap" -lt 64 ] && echo "⚠️  Gap may be insufficient to trigger fastforward"
+	if [ "$blocks_gap" -lt 64 ]; then
+		echo "❌ Block gap $blocks_gap < 64, network did not advance enough to exercise fastforward"
+		kill $LOAD_PID 2>/dev/null || true
+		return 1
+	fi
+
+	# Record the block number right before restart.
+	pre_restart_block=$(get_block_number "$REFERENCE_NODE")
+
+	# Before restart, make sure the target's paired heimdall is not lagged.
+	# If it is, bor's WS subscription will receive an old milestone first
+	# (end_block - currentBlock < FastForwardThreshold), bor will take the
+	# fallback path, and bytecode sync will never run. Wait for paired
+	# heimdall to catch up to the reference heimdall.
+	if ! wait_for_paired_heimdall_to_catch_up "$TARGET_HEIMDALL" "$REFERENCE_HEIMDALL" 60 5; then
+		echo "❌ Target's paired heimdall ($TARGET_HEIMDALL) did not catch up — bor would not see a fast-forward-eligible milestone on restart"
+		kill $LOAD_PID 2>/dev/null || true
+		return 1
+	fi
 
 	# Restart validator
 	echo "Restarting target validator..."
@@ -580,32 +746,44 @@ test_fastforward_sync() {
 		return 1
 	fi
 
-	sleep 15
-
-	# Check for fastforward in logs
+	# Primary gate: the fast-forward log must appear. This proves bor received
+	# a milestone with gap > threshold inside its 30s wait, so bytecode sync
+	# will run for contracts created during the missing window.
+	echo "Waiting up to ${ff_log_timeout}s for 'Fast forwarding stateless node due to large gap' log..."
+	ff_log_start=$SECONDS
 	fastforward_detected=false
-	for attempt in {1..5}; do
+	while [ $((SECONDS - ff_log_start)) -lt $ff_log_timeout ]; do
 		if kurtosis service logs "$ENCLAVE_NAME" "$TARGET_VALIDATOR" --all 2>&1 | grep -q "Fast forwarding stateless node due to large gap"; then
-			echo "✅ Fastforward mode detected in logs!"
+			echo "✅ Fast-forward log observed after $((SECONDS - ff_log_start))s"
 			fastforward_detected=true
 			break
 		fi
-		[ $attempt -lt 5 ] && sleep 10
+		sleep 5
 	done
 
 	if [ "$fastforward_detected" = false ]; then
-		echo "❌ Fastforward indicator not found in logs after 5 attempts"
+		# Distinguish between bor taking the fallback path (log is there but for
+		# the wrong reason) vs. the validator just not having started yet.
+		logs_output=$(kurtosis service logs "$ENCLAVE_NAME" "$TARGET_VALIDATOR" --all 2>&1 || true)
+		if echo "$logs_output" | grep -q "Timeout waiting for fast forward block, using fallback"; then
+			echo "❌ Bor took the fast-forward fallback path (30s timeout). Bytecode sync will not run."
+			echo "   Likely cause: heimdall did not deliver a milestone within bor's 30s wait after restart."
+		else
+			echo "❌ Fast-forward log not observed within ${ff_log_timeout}s and no fallback log either; validator may not have reached stateless-sync mode"
+		fi
 		kill $LOAD_PID 2>/dev/null || true
 		return 1
 	fi
 
-	# Wait for validator to sync to tip
-	echo "Monitoring sync progress (max 60s)..."
-	sync_timeout=60
+	# Secondary check: the validator catches up to tip. This confirms sync
+	# actually progressed (the log alone doesn't prove the node made it to
+	# tip afterward).
+	echo "Monitoring sync progress (max ${catch_up_timeout}s to catch up to pre-restart tip $pre_restart_block)..."
 	sync_start=$SECONDS
 	synced_successfully=false
+	catch_up_duration=0
 
-	while [ $((SECONDS - sync_start)) -lt $sync_timeout ]; do
+	while [ $((SECONDS - sync_start)) -lt $catch_up_timeout ]; do
 		reference_block=$(get_block_number "$REFERENCE_NODE")
 		target_block=$(get_block_number "$TARGET_VALIDATOR")
 
@@ -614,7 +792,8 @@ test_fastforward_sync() {
 			echo "  $((SECONDS - sync_start))s: Target=$target_block, Ref=$reference_block, Diff=$block_diff"
 
 			if [ "$block_diff" -le 5 ] && [ "$block_diff" -ge -5 ]; then
-				echo "✅ Target validator synced to tip"
+				catch_up_duration=$((SECONDS - sync_start))
+				echo "✅ Target validator synced to tip in ${catch_up_duration}s"
 				synced_successfully=true
 				break
 			fi
@@ -628,22 +807,33 @@ test_fastforward_sync() {
 	total_txs=$((final_nonce - initial_nonce))
 
 	if [ "$synced_successfully" = true ]; then
-		echo "✅ Fastforward sync test PASSED - Gap: $blocks_gap blocks, Txs: $total_txs"
+		echo "✅ Fastforward sync test PASSED - Gap: $blocks_gap blocks, Txs: $total_txs, CatchUp: ${catch_up_duration}s"
 		return 0
 	else
-		echo "❌ Fastforward sync test FAILED - Validator didn't sync within ${sync_timeout}s"
+		echo "❌ Fastforward sync test FAILED - Validator didn't catch up to tip within ${catch_up_timeout}s (though fast-forward log was seen)"
 		return 1
 	fi
 }
 
 # Run all tests
+#
+# Order rationale:
+#   - Baseline correctness (1, 2) first so we fail fast on anything fundamental.
+#   - Erigon sync (6) next — read-only, cheap, and fails fast on sync divergence.
+#   - Fastforward (7) before disruptive tests so it runs on a pristine network.
+#     Tests 3–5 stress heimdall milestone consensus (span rotations, network latency)
+#     and can leave the cluster unable to produce milestones for long enough that bor's
+#     30s fast-forward wait expires, making the fastforward test flaky. Running 7 first
+#     avoids that class of flake.
+#   - Disruptive tests last, ordered roughly by escalating severity (3 → 5 → 4) so a
+#     lighter disruption runs before the 30s-extreme-latency + 5-minute recovery of 4.
 test_block_hash_consensus || exit 1
 test_post_veblop_hf_behavior || exit 1
-test_milestone_settlement_latency_resilience || exit 1
-test_extreme_network_latency_recovery || exit 1
-test_load_with_rotation || exit 1
 test_erigon_node_sync || exit 1
 test_fastforward_sync || exit 1
+test_milestone_settlement_latency_resilience || exit 1
+test_load_with_rotation || exit 1
+test_extreme_network_latency_recovery || exit 1
 
 # Run bridge test
 setup_pos_env

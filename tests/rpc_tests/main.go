@@ -1808,7 +1808,7 @@ var testCases = []TestCase{
 				"data": fmt.Sprintf("0x%s", hex.EncodeToString(generateInputForCallGetValue(rm.expectedKeyToStoreInContract))),
 			}
 			return NewRequest("eth_call",
-					[]interface{}{txParams, fmt.Sprintf("0x%x", rm.pushedTxBlockNumber)}),
+					[]interface{}{txParams, "latest"}),
 				nil
 		},
 		HandleResponse: func(rm *ResponseMap, resp Response) error {
