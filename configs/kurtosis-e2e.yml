@@ -25,5 +25,5 @@ polygon_pos_package:
       cl_type: heimdall-v2
       cl_image: heimdall-v2:local
       el_type: bor
-      el_image: 0xpolygon/bor:2.6.3
+      el_image: 0xpolygon/bor:2.7.1
       count: 1
