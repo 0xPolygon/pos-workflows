@@ -10,10 +10,10 @@ HEIMDALL_SERVICE_NAME=${HEIMDALL_SERVICE_NAME:-"l2-cl-1-heimdall-v2-bor-validato
 TX_MINE_TIMEOUT=${TX_MINE_TIMEOUT:-120}
 
 # Service configuration for e2e tests
-# 4 validators (l2-el-1 to l2-el-4) + 2 RPC nodes (l2-el-5, l2-el-6)
-VALIDATORS=("l2-el-1-bor-heimdall-v2-validator" "l2-el-2-bor-heimdall-v2-validator" "l2-el-3-bor-heimdall-v2-validator" "l2-el-4-bor-heimdall-v2-validator")
-RPC_SERVICES=("l2-el-5-bor-heimdall-v2-rpc")
-BASELINE_SERVICE="l2-el-6-bor-heimdall-v2-rpc"
+# 6 validators (l2-el-1 to l2-el-6) + 2 RPC nodes (l2-el-7, l2-el-8)
+VALIDATORS=("l2-el-1-bor-heimdall-v2-validator" "l2-el-2-bor-heimdall-v2-validator" "l2-el-3-bor-heimdall-v2-validator" "l2-el-4-bor-heimdall-v2-validator" "l2-el-5-bor-heimdall-v2-validator" "l2-el-6-bor-heimdall-v2-validator")
+RPC_SERVICES=("l2-el-7-bor-heimdall-v2-rpc")
+BASELINE_SERVICE="l2-el-8-bor-heimdall-v2-rpc"
 
 get_http_url() {
 	local service_name=$1

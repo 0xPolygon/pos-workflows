@@ -3,13 +3,13 @@ polygon_pos_package:
     el_block_interval_seconds: 1
 
   participants:
-    # 4 validator nodes.
+    # 6 validator nodes.
     - kind: validator
       cl_type: heimdall-v2
       cl_image: heimdall-v2:local
       el_type: bor
       el_image: bor:local
-      count: 4
+      count: 6
 
     # 1 rpc node.
     - kind: rpc
