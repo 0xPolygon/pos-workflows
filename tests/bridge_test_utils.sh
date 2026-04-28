@@ -1,14 +1,15 @@
 #!/bin/bash
-# Bridge test: MATIC/POL + ERC20 + ERC721 from L1 to L2.
+# Plasma bridge test: POL + ERC20 + ERC721 from L1 to L2.
 
 BRIDGE_UTILS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$BRIDGE_UTILS_DIR/pos_test_utils.sh"
 
-# Bridge MATIC/POL, ERC20, and ERC721 from L1 to L2 and verify state syncs.
+# Bridge POL, ERC20, and ERC721 from L1 to L2 via the plasma bridge (DepositManager)
+# and verify state syncs land on Heimdall + Bor.
 # Requires setup_pos_env() to have been called first.
 test_bridge_l1_to_l2() {
 	echo ""
-	echo "Starting L1->L2 bridge test (MATIC/POL + ERC20 + ERC721)..."
+	echo "Starting L1->L2 plasma bridge test (POL + ERC20 + ERC721)..."
 
 	local timeout="$POS_TEST_TIMEOUT"
 	local interval="$POS_TEST_INTERVAL"
@@ -38,12 +39,13 @@ test_bridge_l1_to_l2() {
 	cast send --rpc-url "${L1_RPC_URL}" --private-key "${PRIVATE_KEY}" \
 		"${L1_ERC721_TOKEN_ADDRESS}" "mint(uint)" "${token_id}"
 
-	# Bridge MATIC/POL.
-	echo "Bridging MATIC/POL..."
+	# Bridge POL. After the MATIC->POL migration, POL is mapped to the L2 native gas token,
+	# so the deposit increases the depositor's L2 native balance.
+	echo "Bridging POL..."
 	cast send --rpc-url "${L1_RPC_URL}" --private-key "${PRIVATE_KEY}" \
-		"${L1_MATIC_TOKEN_ADDRESS}" "approve(address,uint)" "${L1_DEPOSIT_MANAGER_PROXY_ADDRESS}" "${bridge_amount}"
+		"${L1_POL_TOKEN_ADDRESS}" "approve(address,uint)" "${L1_DEPOSIT_MANAGER_PROXY_ADDRESS}" "${bridge_amount}"
 	cast send --rpc-url "${L1_RPC_URL}" --private-key "${PRIVATE_KEY}" \
-		"${L1_DEPOSIT_MANAGER_PROXY_ADDRESS}" "depositERC20(address,uint)" "${L1_MATIC_TOKEN_ADDRESS}" "${bridge_amount}"
+		"${L1_DEPOSIT_MANAGER_PROXY_ADDRESS}" "depositERC20(address,uint)" "${L1_POL_TOKEN_ADDRESS}" "${bridge_amount}"
 
 	# Bridge ERC20.
 	echo "Bridging ERC20..."

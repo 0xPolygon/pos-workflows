@@ -99,7 +99,8 @@ func runSetup(stateFilePath string) {
 	fmt.Printf("Fetched %d spans from Heimdall\n", len(spans))
 
 	var span *spanInfo
-	for i := 0; i < 256; i++ {
+	deadline := time.Now().Add(120 * time.Second)
+	for {
 		span, err = getSpanForBlock(startBlock)
 		if err != nil {
 			panic(fmt.Sprintf("Failed to get span for start block %d: %v", startBlock, err))
@@ -109,6 +110,10 @@ func runSetup(stateFilePath string) {
 			break
 		}
 
+		if time.Now().After(deadline) {
+			panic(fmt.Sprintf("No span found covering start block %d after 120s; the chain is likely not progressing", startBlock))
+		}
+
 		fmt.Printf("Span for start block %d not found yet, retrying...\n", startBlock)
 
 		time.Sleep(10 * time.Second)
@@ -116,10 +121,6 @@ func runSetup(stateFilePath string) {
 		if err := getSpans(); err != nil {
 			panic(fmt.Sprintf("Failed to refresh spans: %v", err))
 		}
-	}
-
-	if span == nil {
-		panic(fmt.Sprintf("No span found covering start block %d", startBlock))
 	}
 
 	fmt.Printf("Producer for start block %d: ValID=%d, Address=%s\n", startBlock, span.ProducerValID, span.ProducerAddress)

@@ -33,45 +33,46 @@ setup_pos_env() {
 		[[ -z "${L1_DEPOSIT_MANAGER_PROXY_ADDRESS:-}" ]] ||
 		[[ -z "${L1_STAKE_MANAGER_PROXY_ADDRESS:-}" ]] ||
 		[[ -z "${L1_STAKING_INFO_ADDRESS:-}" ]] ||
-		[[ -z "${L1_MATIC_TOKEN_ADDRESS:-}" ]] ||
+		[[ -z "${L1_POL_TOKEN_ADDRESS:-}" ]] ||
 		[[ -z "${L1_ERC20_TOKEN_ADDRESS:-}" ]] ||
 		[[ -z "${L1_ERC721_TOKEN_ADDRESS:-}" ]] ||
 		[[ -z "${L2_STATE_RECEIVER_ADDRESS:-}" ]] ||
 		[[ -z "${L2_ERC20_TOKEN_ADDRESS:-}" ]] ||
 		[[ -z "${L2_ERC721_TOKEN_ADDRESS:-}" ]]; then
-		local matic_contract_addresses
-		matic_contract_addresses=$(kurtosis files inspect "${ENCLAVE_NAME}" matic-contract-addresses contractAddresses.json | jq)
+		# pos-bridge-addresses is the final cumulative artifact (plasma + pol migration + pos-bridge).
+		local pos_contract_addresses
+		pos_contract_addresses=$(kurtosis files inspect "${ENCLAVE_NAME}" pos-bridge-addresses contractAddresses.json | jq)
 
 		# L1 contract addresses.
-		export L1_GOVERNANCE_PROXY_ADDRESS=${L1_GOVERNANCE_PROXY_ADDRESS:-$(echo "${matic_contract_addresses}" | jq --raw-output '.root.GovernanceProxy')}
+		export L1_GOVERNANCE_PROXY_ADDRESS=${L1_GOVERNANCE_PROXY_ADDRESS:-$(echo "${pos_contract_addresses}" | jq --raw-output '.root.GovernanceProxy')}
 		echo "L1_GOVERNANCE_PROXY_ADDRESS=${L1_GOVERNANCE_PROXY_ADDRESS}"
 
-		export L1_DEPOSIT_MANAGER_PROXY_ADDRESS=${L1_DEPOSIT_MANAGER_PROXY_ADDRESS:-$(echo "${matic_contract_addresses}" | jq --raw-output '.root.DepositManagerProxy')}
+		export L1_DEPOSIT_MANAGER_PROXY_ADDRESS=${L1_DEPOSIT_MANAGER_PROXY_ADDRESS:-$(echo "${pos_contract_addresses}" | jq --raw-output '.root.DepositManagerProxy')}
 		echo "L1_DEPOSIT_MANAGER_PROXY_ADDRESS=${L1_DEPOSIT_MANAGER_PROXY_ADDRESS}"
 
-		export L1_STAKE_MANAGER_PROXY_ADDRESS=${L1_STAKE_MANAGER_PROXY_ADDRESS:-$(echo "${matic_contract_addresses}" | jq --raw-output '.root.StakeManagerProxy')}
+		export L1_STAKE_MANAGER_PROXY_ADDRESS=${L1_STAKE_MANAGER_PROXY_ADDRESS:-$(echo "${pos_contract_addresses}" | jq --raw-output '.root.StakeManagerProxy')}
 		echo "L1_STAKE_MANAGER_PROXY_ADDRESS=${L1_STAKE_MANAGER_PROXY_ADDRESS}"
 
-		export L1_STAKING_INFO_ADDRESS=${L1_STAKING_INFO_ADDRESS:-$(echo "${matic_contract_addresses}" | jq --raw-output '.root.StakingInfo')}
+		export L1_STAKING_INFO_ADDRESS=${L1_STAKING_INFO_ADDRESS:-$(echo "${pos_contract_addresses}" | jq --raw-output '.root.StakingInfo')}
 		echo "L1_STAKING_INFO_ADDRESS=${L1_STAKING_INFO_ADDRESS}"
 
-		export L1_MATIC_TOKEN_ADDRESS=${L1_MATIC_TOKEN_ADDRESS:-$(echo "${matic_contract_addresses}" | jq --raw-output '.root.tokens.MaticToken')}
-		echo "L1_MATIC_TOKEN_ADDRESS=${L1_MATIC_TOKEN_ADDRESS}"
+		export L1_POL_TOKEN_ADDRESS=${L1_POL_TOKEN_ADDRESS:-$(echo "${pos_contract_addresses}" | jq --raw-output '.root.tokens.PolToken')}
+		echo "L1_POL_TOKEN_ADDRESS=${L1_POL_TOKEN_ADDRESS}"
 
-		export L1_ERC20_TOKEN_ADDRESS=${L1_ERC20_TOKEN_ADDRESS:-$(echo "${matic_contract_addresses}" | jq --raw-output '.root.tokens.TestToken')}
+		export L1_ERC20_TOKEN_ADDRESS=${L1_ERC20_TOKEN_ADDRESS:-$(echo "${pos_contract_addresses}" | jq --raw-output '.root.tokens.TestToken')}
 		echo "L1_ERC20_TOKEN_ADDRESS=${L1_ERC20_TOKEN_ADDRESS}"
 
-		export L1_ERC721_TOKEN_ADDRESS=${L1_ERC721_TOKEN_ADDRESS:-$(echo "${matic_contract_addresses}" | jq --raw-output '.root.tokens.RootERC721')}
+		export L1_ERC721_TOKEN_ADDRESS=${L1_ERC721_TOKEN_ADDRESS:-$(echo "${pos_contract_addresses}" | jq --raw-output '.root.tokens.RootERC721')}
 		echo "L1_ERC721_TOKEN_ADDRESS=${L1_ERC721_TOKEN_ADDRESS}"
 
 		# L2 contract addresses.
 		export L2_STATE_RECEIVER_ADDRESS=${L2_STATE_RECEIVER_ADDRESS:-$(kurtosis files inspect "${ENCLAVE_NAME}" l2-el-genesis genesis.json | jq --raw-output '.config.bor.stateReceiverContract')}
 		echo "L2_STATE_RECEIVER_ADDRESS=${L2_STATE_RECEIVER_ADDRESS}"
 
-		export L2_ERC20_TOKEN_ADDRESS=${L2_ERC20_TOKEN_ADDRESS:-$(echo "${matic_contract_addresses}" | jq --raw-output '.child.tokens.TestToken')}
+		export L2_ERC20_TOKEN_ADDRESS=${L2_ERC20_TOKEN_ADDRESS:-$(echo "${pos_contract_addresses}" | jq --raw-output '.child.tokens.TestToken')}
 		echo "L2_ERC20_TOKEN_ADDRESS=${L2_ERC20_TOKEN_ADDRESS}"
 
-		export L2_ERC721_TOKEN_ADDRESS=${L2_ERC721_TOKEN_ADDRESS:-$(echo "${matic_contract_addresses}" | jq --raw-output '.child.tokens.RootERC721')}
+		export L2_ERC721_TOKEN_ADDRESS=${L2_ERC721_TOKEN_ADDRESS:-$(echo "${pos_contract_addresses}" | jq --raw-output '.child.tokens.RootERC721')}
 		echo "L2_ERC721_TOKEN_ADDRESS=${L2_ERC721_TOKEN_ADDRESS}"
 	fi
 }

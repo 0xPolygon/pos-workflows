@@ -321,10 +321,10 @@ main() {
 
 	setup_pos_env
 	if ! test_bridge_l1_to_l2; then
-		echo "❌ Bridge test (MATIC/POL + ERC20 + ERC721) failed"
+		echo "❌ Plasma bridge test (POL + ERC20 + ERC721) failed"
 		exit 1
 	fi
-	echo "✅ Bridge test (MATIC/POL + ERC20 + ERC721) passed"
+	echo "✅ Plasma bridge test (POL + ERC20 + ERC721) passed"
 	echo ""
 
 	if ! test_checkpoints; then
