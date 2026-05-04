@@ -39,9 +39,8 @@ setup_pos_env() {
 		[[ -z "${L2_STATE_RECEIVER_ADDRESS:-}" ]] ||
 		[[ -z "${L2_ERC20_TOKEN_ADDRESS:-}" ]] ||
 		[[ -z "${L2_ERC721_TOKEN_ADDRESS:-}" ]]; then
-		# pos-bridge-addresses is the final cumulative artifact (plasma + pol migration + pos-bridge).
 		local pos_contract_addresses
-		pos_contract_addresses=$(kurtosis files inspect "${ENCLAVE_NAME}" pos-bridge-addresses contractAddresses.json | jq)
+		pos_contract_addresses=$(kurtosis files inspect "${ENCLAVE_NAME}" pos-contract-addresses contractAddresses.json | jq)
 
 		# L1 contract addresses.
 		export L1_GOVERNANCE_PROXY_ADDRESS=${L1_GOVERNANCE_PROXY_ADDRESS:-$(echo "${pos_contract_addresses}" | jq --raw-output '.root.GovernanceProxy')}
