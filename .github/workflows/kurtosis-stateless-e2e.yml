@@ -82,7 +82,7 @@ jobs:
           ref: hv2/eip1559-and-rio-at-128
 
       - name: Pre kurtosis run
-        uses: ./.github/actions/setup
+        uses: ./.github/actions/kurtosis/setup
         with:
           main_branch: main
 
@@ -146,7 +146,7 @@ jobs:
 
       - name: Post kurtosis run
         if: always()
-        uses: ./.github/actions/cleanup
+        uses: ./.github/actions/kurtosis/cleanup
         with:
           main_branch: main
           enclave_name: ${{ env.ENCLAVE_NAME }}
