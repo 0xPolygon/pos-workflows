@@ -63,7 +63,7 @@ test_update_validator_stake() {
 	echo ""
 	echo "Starting update validator stake test..."
 
-	local validator_private_key=${VALIDATOR_PRIVATE_KEY:-"0x2a4ae8c4c250917781d38d95dafbb0abe87ae2c9aea02ed7c7524685358e49c2"}
+	local validator_private_key=${VALIDATOR_PRIVATE_KEY:-"0x366e00782dc95330d1e831c05c9acc7b7bf6dd113e3e4e587ab10ce6e788205c"}
 	local validator_id=${VALIDATOR_ID:-"1"}
 	local validator_power_cmd='curl -s "${L2_CL_API_URL}/stake/validator/'"${validator_id}"'" | jq --raw-output ".validator.voting_power"'
 
