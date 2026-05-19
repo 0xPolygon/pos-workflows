@@ -815,6 +815,129 @@ test_fastforward_sync() {
 	fi
 }
 
+# Test 8: Producer restart recovery
+#
+# Regression test for the bor "PeerCount==0 silent drop" wedge fixed on
+# 2026-05 in miner/worker.go. The bug: when bor restarts and its first
+# newWorkReq arrives while w.eth.PeerCount() is still 0, mainLoop silently
+# drops the request without clearing pendingWorkBlock, leaving the veblop
+# fallback's `pendingWorkBlock == currentBlock+1` short-circuit stuck —
+# the producer never seals again until a second restart. The fix is a
+# one-line w.pendingWorkBlock.Store(0) in the dropped-request branch.
+#
+# The same PR also removed the BorMainnet/Mumbai/Amoy chain-ID gate that
+# previously hid this bug from kurtosis chaos testing — the PeerCount > 0
+# || DevFakeAuthor check now applies on every chain, including the dev
+# chain (ID 4927) this stack uses. As a result, this test exercises exactly
+# the same code path bor takes on production chains.
+#
+# Methodology:
+#   1. Resolve the currently-elected producer via bor_getAuthor of the latest
+#      block + heimdall span lookup.
+#   2. Briefly stop+start that validator (2s pause — short enough that
+#      heimdall does not rotate the span away, so when bor comes back up it
+#      is still the span owner and will hit the PeerCount==0 race on its
+#      first commit() tick).
+#   3. Verify the restarted producer logs "Successfully sealed new block"
+#      within recovery_timeout. The fix recovers within ~10s of restart in
+#      kurtosis validation; a stalled producer never seals.
+#
+# Unit-level coverage of the same code path lives in
+# bor/miner/worker_test.go:TestMainLoopClearsPendingWorkBlockOnPeerCountZero.
+test_producer_restart_recovery() {
+	echo ""
+	echo "Test 8: Producer restart recovery"
+	echo ""
+
+	local stop_pause_seconds=2
+	local recovery_timeout=60
+	local heimdall_service="l2-cl-1-heimdall-v2-bor-validator"
+
+	# Identify the currently-elected producer from the latest block.
+	local ref_service="${RPC_SERVICES[0]}"
+	local ref_rpc=$(get_rpc_url "$ref_service")
+	if [ -z "$ref_rpc" ]; then
+		echo "❌ Could not resolve reference RPC URL ($ref_service)"
+		return 1
+	fi
+
+	local pre_block=$(get_block_number "$ref_service")
+	if ! [[ "$pre_block" =~ ^[0-9]+$ ]] || [ "$pre_block" -le 0 ]; then
+		echo "❌ Invalid pre-restart block number from $ref_service: $pre_block"
+		return 1
+	fi
+	local signer=$(get_block_author "$ref_service" "$pre_block")
+	if [ -z "$signer" ]; then
+		echo "❌ Could not read bor_getAuthor($pre_block) from $ref_service"
+		return 1
+	fi
+
+	# Map signer -> validator ID via heimdall span data.
+	local span_url=$(kurtosis port print "$ENCLAVE_NAME" "$heimdall_service" http 2>/dev/null)
+	if [ -z "$span_url" ]; then
+		echo "❌ Could not resolve heimdall HTTP URL ($heimdall_service)"
+		return 1
+	fi
+	local latest_span=$(curl -s --max-time 5 "${span_url}/bor/spans/latest")
+	local val_id=$(echo "$latest_span" | jq -r --arg s "$signer" \
+		'.span.validator_set.validators[] | select(.signer | ascii_downcase == ($s | ascii_downcase)) | .val_id')
+	if ! [[ "$val_id" =~ ^[0-9]+$ ]]; then
+		echo "❌ Could not map signer $signer to a validator ID"
+		return 1
+	fi
+
+	local target_service="${SERVICE_PREFIX_VALIDATOR}-${val_id}-${SERVICE_SUFFIX_VALIDATOR}"
+	echo "Active producer: signer=$signer val_id=$val_id service=$target_service pre_block=$pre_block"
+
+	# Snapshot pre-restart seal count so we can count only NEW seals after
+	# restart, not stale ones from the validator's prior life.
+	local baseline_seal_count
+	baseline_seal_count=$(kurtosis service logs "$ENCLAVE_NAME" "$target_service" --all 2>&1 |
+		grep -cE "Successfully sealed new block" 2>/dev/null || echo 0)
+	echo "Pre-restart seal count: $baseline_seal_count"
+
+	echo "Stopping $target_service ..."
+	if ! kurtosis service stop "$ENCLAVE_NAME" "$target_service" >/dev/null 2>&1; then
+		echo "❌ Failed to stop $target_service"
+		return 1
+	fi
+	sleep "$stop_pause_seconds"
+
+	echo "Starting $target_service ..."
+	if ! kurtosis service start "$ENCLAVE_NAME" "$target_service" >/dev/null 2>&1; then
+		echo "❌ Failed to start $target_service"
+		return 1
+	fi
+
+	# Watch for new seal events from the restarted producer. With a healthy
+	# mainLoop, the producer resumes sealing within ~10s of restart. A
+	# stalled producer (Bug 1 regression) produces zero seals for the entire
+	# window — that is exactly what we observed in /tmp/postrio_validate.sh
+	# Phase A.
+	echo "Watching $target_service for post-restart seal events (timeout ${recovery_timeout}s)..."
+	local watch_start=$SECONDS
+	local new_seals=0
+	while [ $((SECONDS - watch_start)) -lt "$recovery_timeout" ]; do
+		sleep 5
+		local current_seal_count
+		current_seal_count=$(kurtosis service logs "$ENCLAVE_NAME" "$target_service" --all 2>&1 |
+			grep -cE "Successfully sealed new block" 2>/dev/null || echo 0)
+		new_seals=$((current_seal_count - baseline_seal_count))
+		local now_block
+		now_block=$(get_block_number "$ref_service")
+		echo "  t+$((SECONDS - watch_start))s ref_head=$now_block new_seals_on_target=$new_seals"
+		if [ "$new_seals" -ge 1 ]; then
+			echo "✅ Restarted producer resumed sealing (${new_seals} new seal(s) in $((SECONDS - watch_start))s after restart)"
+			return 0
+		fi
+	done
+
+	echo "❌ Restarted producer ($target_service) did not seal a block within ${recovery_timeout}s"
+	echo "   This matches the production failure shape from the 2026-05-07 Amoy incident"
+	echo "   (Bug 1: PeerCount==0 silent drop in miner.mainLoop)."
+	return 1
+}
+
 # Run all tests
 #
 # Order rationale:
@@ -827,6 +950,9 @@ test_fastforward_sync() {
 #     avoids that class of flake.
 #   - Disruptive tests last, ordered roughly by escalating severity (3 → 5 → 4) so a
 #     lighter disruption runs before the 30s-extreme-latency + 5-minute recovery of 4.
+#   - Producer restart (8) runs last because its stop+start cycle briefly
+#     disrupts heimdall milestone consensus, which would skew the
+#     settlement-latency thresholds of any test downstream.
 test_block_hash_consensus || exit 1
 test_post_veblop_hf_behavior || exit 1
 test_erigon_node_sync || exit 1
@@ -838,6 +964,10 @@ test_extreme_network_latency_recovery || exit 1
 # Run bridge test
 setup_pos_env
 test_bridge_l1_to_l2 || exit 1
+
+# Producer restart recovery runs after bridge so it doesn't disrupt
+# heimdall milestone consensus for any other test.
+test_producer_restart_recovery || exit 1
 
 echo ""
 echo "✅ All stateless sync tests passed"
