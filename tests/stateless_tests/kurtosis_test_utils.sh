@@ -41,433 +41,433 @@ EXTREME_LATENCY_DURATION=${EXTREME_LATENCY_DURATION:-"30s"}
 
 # Check if required tools are available
 check_required_tools() {
-	if ! command -v cast &> /dev/null; then
-		echo "Error: 'cast' command not found. Please install Foundry toolkit."
-		exit 1
-	fi
+  if ! command -v cast &> /dev/null; then
+    echo "Error: 'cast' command not found. Please install Foundry toolkit."
+    exit 1
+  fi
 
-	if ! command -v kurtosis &> /dev/null; then
-		echo "Error: 'kurtosis' command not found. Please install Kurtosis."
-		exit 1
-	fi
+  if ! command -v kurtosis &> /dev/null; then
+    echo "Error: 'kurtosis' command not found. Please install Kurtosis."
+    exit 1
+  fi
 }
 
 # Function to get RPC URL for a service
 get_rpc_url() {
-	local service_name=$1
-	kurtosis port print $ENCLAVE_NAME $service_name rpc 2> /dev/null || echo ""
+  local service_name=$1
+  kurtosis port print $ENCLAVE_NAME $service_name rpc 2> /dev/null || echo ""
 }
 
 # Function to get block number from a specific service using cast
 get_block_number() {
-	local service_name=$1
-	local rpc_url=$(get_rpc_url $service_name)
-	if [ -n "$rpc_url" ]; then
-		cast block --rpc-url "$rpc_url" 2> /dev/null | grep "number" | awk '{print $2}' | sed 's/,//' || echo "0"
-	else
-		echo "0"
-	fi
+  local service_name=$1
+  local rpc_url=$(get_rpc_url $service_name)
+  if [ -n "$rpc_url" ]; then
+    cast block --rpc-url "$rpc_url" 2> /dev/null | grep "number" | awk '{print $2}' | sed 's/,//' || echo "0"
+  else
+    echo "0"
+  fi
 }
 
 # Function to get block timestamp using cast
 get_block_timestamp() {
-	local service_name=$1
-	local block_number=$2
-	local rpc_url=$(get_rpc_url $service_name)
-	if [ -n "$rpc_url" ]; then
-		cast block $block_number --rpc-url "$rpc_url" 2> /dev/null | grep "timestamp" | awk '{print $2}' | sed 's/,//' || echo "0"
-	else
-		echo "0"
-	fi
+  local service_name=$1
+  local block_number=$2
+  local rpc_url=$(get_rpc_url $service_name)
+  if [ -n "$rpc_url" ]; then
+    cast block $block_number --rpc-url "$rpc_url" 2> /dev/null | grep "timestamp" | awk '{print $2}' | sed 's/,//' || echo "0"
+  else
+    echo "0"
+  fi
 }
 
 # Function to get finalized block number using cast
 get_finalized_block() {
-	local service_name=$1
-	local rpc_url=$(get_rpc_url $service_name)
-	if [ -n "$rpc_url" ]; then
-		cast block finalized --rpc-url "$rpc_url" 2> /dev/null | grep "number" | awk '{print $2}' | sed 's/,//' || echo "0"
-	else
-		echo "0"
-	fi
+  local service_name=$1
+  local rpc_url=$(get_rpc_url $service_name)
+  if [ -n "$rpc_url" ]; then
+    cast block finalized --rpc-url "$rpc_url" 2> /dev/null | grep "number" | awk '{print $2}' | sed 's/,//' || echo "0"
+  else
+    echo "0"
+  fi
 }
 
 # Function to get block hash using cast
 get_block_hash() {
-	local service_name=$1
-	local block_number=$2
-	local rpc_url=$(get_rpc_url $service_name)
-	if [ -n "$rpc_url" ]; then
-		cast block $block_number --rpc-url "$rpc_url" 2> /dev/null | grep "^hash" | awk '{print $2}' | sed 's/,//' || echo ""
-	else
-		echo ""
-	fi
+  local service_name=$1
+  local block_number=$2
+  local rpc_url=$(get_rpc_url $service_name)
+  if [ -n "$rpc_url" ]; then
+    cast block $block_number --rpc-url "$rpc_url" 2> /dev/null | grep "^hash" | awk '{print $2}' | sed 's/,//' || echo ""
+  else
+    echo ""
+  fi
 }
 
 # Function to setup service lists based on kurtosis configuration
 setup_service_lists() {
-	echo "Setting up service lists based on kurtosis configuration..."
+  echo "Setting up service lists based on kurtosis configuration..."
 
-	# Configuration summary
-	echo "Config: Validators ($VALIDATORS_START-$VALIDATORS_END), RPC services ($RPC_SERVICES_START-$RPC_SERVICES_END + Erigon)"
+  # Configuration summary
+  echo "Config: Validators ($VALIDATORS_START-$VALIDATORS_END), RPC services ($RPC_SERVICES_START-$RPC_SERVICES_END + Erigon)"
 
-	VALIDATORS=()
-	RPC_SERVICES=()
+  VALIDATORS=()
+  RPC_SERVICES=()
 
-	# Validators
-	for ((i = VALIDATORS_START; i <= VALIDATORS_END; i++)); do
-		VALIDATORS+=("$SERVICE_PREFIX_VALIDATOR-$i-$SERVICE_SUFFIX_VALIDATOR")
-	done
+  # Validators
+  for ((i = VALIDATORS_START; i <= VALIDATORS_END; i++)); do
+    VALIDATORS+=("$SERVICE_PREFIX_VALIDATOR-$i-$SERVICE_SUFFIX_VALIDATOR")
+  done
 
-	# RPC nodes
-	for ((i = RPC_SERVICES_START; i <= RPC_SERVICES_END; i++)); do
-		RPC_SERVICES+=("$SERVICE_PREFIX_VALIDATOR-$i-$SERVICE_SUFFIX_RPC")
-	done
+  # RPC nodes
+  for ((i = RPC_SERVICES_START; i <= RPC_SERVICES_END; i++)); do
+    RPC_SERVICES+=("$SERVICE_PREFIX_VALIDATOR-$i-$SERVICE_SUFFIX_RPC")
+  done
 
-	# Add the Erigon RPC node
-	RPC_SERVICES+=("l2-el-9-erigon-heimdall-v2-rpc")
+  # Add the Erigon RPC node
+  RPC_SERVICES+=("l2-el-9-erigon-heimdall-v2-rpc")
 
-	echo "Validators ($VALIDATORS_START-$VALIDATORS_END): ${VALIDATORS[*]}"
-	echo "RPC services ($RPC_SERVICES_START-$RPC_SERVICES_END + Erigon): ${RPC_SERVICES[*]}"
+  echo "Validators ($VALIDATORS_START-$VALIDATORS_END): ${VALIDATORS[*]}"
+  echo "RPC services ($RPC_SERVICES_START-$RPC_SERVICES_END + Erigon): ${RPC_SERVICES[*]}"
 }
 
 # Function to verify service accessibility
 verify_service_accessibility() {
-	echo "Verifying service accessibility..."
-	for service in "${VALIDATORS[@]}" "${RPC_SERVICES[@]}"; do
-		rpc_url=$(get_rpc_url $service)
-		if [ -n "$rpc_url" ]; then
-			echo "✅ $service: $rpc_url"
-		else
-			echo "❌ $service: No RPC URL found"
-		fi
-	done
+  echo "Verifying service accessibility..."
+  for service in "${VALIDATORS[@]}" "${RPC_SERVICES[@]}"; do
+    rpc_url=$(get_rpc_url $service)
+    if [ -n "$rpc_url" ]; then
+      echo "✅ $service: $rpc_url"
+    else
+      echo "❌ $service: No RPC URL found"
+    fi
+  done
 }
 
 # Function to get maximum block number from a list of services
 get_max_block_from_services() {
-	local services=("$@")
-	local max_block=0
+  local services=("$@")
+  local max_block=0
 
-	for service in "${services[@]}"; do
-		block_num=$(get_block_number $service)
-		if [[ "$block_num" =~ ^[0-9]+$ ]] && [ $block_num -gt $max_block ]; then
-			max_block=$block_num
-		fi
-	done
+  for service in "${services[@]}"; do
+    block_num=$(get_block_number $service)
+    if [[ "$block_num" =~ ^[0-9]+$ ]] && [ $block_num -gt $max_block ]; then
+      max_block=$block_num
+    fi
+  done
 
-	echo $max_block
+  echo $max_block
 }
 
 # Function to start network latency in background
 start_network_latency() {
-	local delay_el=${1:-$DELAY_EL}
-	local jitter_el=${2:-$JITTER_EL}
-	local delay_cl=${3:-$DELAY_CL}
-	local jitter_cl=${4:-$JITTER_CL}
-	local duration=${5:-$NETWORK_LATENCY_DURATION}
+  local delay_el=${1:-$DELAY_EL}
+  local jitter_el=${2:-$JITTER_EL}
+  local delay_cl=${3:-$DELAY_CL}
+  local jitter_cl=${4:-$JITTER_CL}
+  local duration=${5:-$NETWORK_LATENCY_DURATION}
 
-	echo "Starting network latency application..."
-	echo "Network latency config: EL=${delay_el}ms±${jitter_el}ms, CL=${delay_cl}ms±${jitter_cl}ms, Duration=${duration}"
+  echo "Starting network latency application..."
+  echo "Network latency config: EL=${delay_el}ms±${jitter_el}ms, CL=${delay_cl}ms±${jitter_cl}ms, Duration=${duration}"
 
-	# Export the custom parameters so the apply_global_network_latency.sh script can use them
-	export DELAY_EL="$delay_el"
-	export JITTER_EL="$jitter_el"
-	export DELAY_CL="$delay_cl"
-	export JITTER_CL="$jitter_cl"
-	export NETWORK_LATENCY_DURATION="$duration"
+  # Export the custom parameters so the apply_global_network_latency.sh script can use them
+  export DELAY_EL="$delay_el"
+  export JITTER_EL="$jitter_el"
+  export DELAY_CL="$delay_cl"
+  export JITTER_CL="$jitter_cl"
+  export NETWORK_LATENCY_DURATION="$duration"
 
-	# Start the latency script in background and capture its PID
-	"$SCRIPT_DIR/apply_global_network_latency.sh" > /tmp/network_latency.log 2>&1 &
-	NETWORK_LATENCY_PID=$!
-	echo "Network latency process started with PID $NETWORK_LATENCY_PID"
+  # Start the latency script in background and capture its PID
+  "$SCRIPT_DIR/apply_global_network_latency.sh" > /tmp/network_latency.log 2>&1 &
+  NETWORK_LATENCY_PID=$!
+  echo "Network latency process started with PID $NETWORK_LATENCY_PID"
 
-	# Give it a moment to start up
-	sleep 10
+  # Give it a moment to start up
+  sleep 10
 
-	# Check if the process is still running
-	if kill -0 $NETWORK_LATENCY_PID 2> /dev/null; then
-		echo "✅ Network latency successfully applied"
-		return 0
-	else
-		echo "❌ Failed to start network latency"
-		cat /tmp/network_latency.log 2> /dev/null || echo "No log file found"
-		return 1
-	fi
+  # Check if the process is still running
+  if kill -0 $NETWORK_LATENCY_PID 2> /dev/null; then
+    echo "✅ Network latency successfully applied"
+    return 0
+  else
+    echo "❌ Failed to start network latency"
+    cat /tmp/network_latency.log 2> /dev/null || echo "No log file found"
+    return 1
+  fi
 }
 
 # Function to wait for network latency to complete
 wait_for_pending_network_latency() {
-	if [ -n "$NETWORK_LATENCY_PID" ]; then
-		echo "Waiting for network latency process to complete (PID: $NETWORK_LATENCY_PID)..."
+  if [ -n "$NETWORK_LATENCY_PID" ]; then
+    echo "Waiting for network latency process to complete (PID: $NETWORK_LATENCY_PID)..."
 
-		# Wait for the process to complete naturally
-		if wait $NETWORK_LATENCY_PID 2> /dev/null; then
-			echo "✅ Network latency process completed successfully"
-		else
-			echo "✅ Network latency process completed"
-		fi
+    # Wait for the process to complete naturally
+    if wait $NETWORK_LATENCY_PID 2> /dev/null; then
+      echo "✅ Network latency process completed successfully"
+    else
+      echo "✅ Network latency process completed"
+    fi
 
-		NETWORK_LATENCY_PID=""
-	fi
+    NETWORK_LATENCY_PID=""
+  fi
 }
 
 # Function to run milestone settlement latency test
 test_milestone_settlement_latency() {
-	local test_name="$1"
-	local iterations=${2:-$LATENCY_CHECK_ITERATIONS}
-	local max_latency=${3:-$MAX_SETTLEMENT_LATENCY_SECONDS}
+  local test_name="$1"
+  local iterations=${2:-$LATENCY_CHECK_ITERATIONS}
+  local max_latency=${3:-$MAX_SETTLEMENT_LATENCY_SECONDS}
 
-	echo "Testing milestone settlement latency for $test_name..."
-	echo "Checking $iterations finalized blocks with max latency threshold of ${max_latency}s"
+  echo "Testing milestone settlement latency for $test_name..."
+  echo "Checking $iterations finalized blocks with max latency threshold of ${max_latency}s"
 
-	REPRESENTATIVE_SERVICE=${VALIDATORS[0]}
-	echo "Using service $REPRESENTATIVE_SERVICE for latency testing"
+  REPRESENTATIVE_SERVICE=${VALIDATORS[0]}
+  echo "Using service $REPRESENTATIVE_SERVICE for latency testing"
 
-	local failed_checks=0
-	local total_latency=0
-	local successful_checks=0
+  local failed_checks=0
+  local total_latency=0
+  local successful_checks=0
 
-	for ((i = 1; i <= iterations; i++)); do
-		finalized_block=$(get_finalized_block $REPRESENTATIVE_SERVICE)
+  for ((i = 1; i <= iterations; i++)); do
+    finalized_block=$(get_finalized_block $REPRESENTATIVE_SERVICE)
 
-		if [[ "$finalized_block" =~ ^[0-9]+$ ]] && [ $finalized_block -gt 0 ]; then
-			block_timestamp=$(get_block_timestamp $REPRESENTATIVE_SERVICE $finalized_block)
-			current_timestamp=$(date +%s)
+    if [[ "$finalized_block" =~ ^[0-9]+$ ]] && [ $finalized_block -gt 0 ]; then
+      block_timestamp=$(get_block_timestamp $REPRESENTATIVE_SERVICE $finalized_block)
+      current_timestamp=$(date +%s)
 
-			if [[ "$block_timestamp" =~ ^[0-9]+$ ]]; then
-				latency=$((current_timestamp - block_timestamp))
-				total_latency=$((total_latency + latency))
-				successful_checks=$((successful_checks + 1))
+      if [[ "$block_timestamp" =~ ^[0-9]+$ ]]; then
+        latency=$((current_timestamp - block_timestamp))
+        total_latency=$((total_latency + latency))
+        successful_checks=$((successful_checks + 1))
 
-				echo "Block $finalized_block: latency=${latency}s"
+        echo "Block $finalized_block: latency=${latency}s"
 
-				if [ $latency -gt $max_latency ]; then
-					echo "❌ Settlement latency check $i failed: ${latency}s > ${max_latency}s for block $finalized_block"
-					failed_checks=$((failed_checks + 1))
-				fi
-			else
-				echo "⚠️  Could not get valid timestamp for block $finalized_block"
-			fi
-		else
-			echo "⚠️  Could not get valid finalized block in iteration $i"
-		fi
+        if [ $latency -gt $max_latency ]; then
+          echo "❌ Settlement latency check $i failed: ${latency}s > ${max_latency}s for block $finalized_block"
+          failed_checks=$((failed_checks + 1))
+        fi
+      else
+        echo "⚠️  Could not get valid timestamp for block $finalized_block"
+      fi
+    else
+      echo "⚠️  Could not get valid finalized block in iteration $i"
+    fi
 
-		sleep 2
-	done
+    sleep 2
+  done
 
-	if [ $successful_checks -gt 0 ]; then
-		avg_latency=$((total_latency / successful_checks))
-		echo "Average latency: ${avg_latency}s (${successful_checks} successful checks)"
-	fi
+  if [ $successful_checks -gt 0 ]; then
+    avg_latency=$((total_latency / successful_checks))
+    echo "Average latency: ${avg_latency}s (${successful_checks} successful checks)"
+  fi
 
-	if [ $failed_checks -eq 0 ]; then
-		echo "✅ All milestone settlement latency checks passed for $test_name (< ${max_latency}s)"
-		return 0
-	else
-		echo "❌ $failed_checks out of $iterations latency checks failed for $test_name"
-		return 1
-	fi
+  if [ $failed_checks -eq 0 ]; then
+    echo "✅ All milestone settlement latency checks passed for $test_name (< ${max_latency}s)"
+    return 0
+  else
+    echo "❌ $failed_checks out of $iterations latency checks failed for $test_name"
+    return 1
+  fi
 }
 
 # Function to test that nodes can recover sync and generate new blocks
 test_sync_recovery() {
-	local test_name="$1"
-	local timeout_seconds=${2:-300}  # 5 minutes default
-	local min_block_progress=${3:-5} # Minimum blocks to consider recovery successful
-	local max_milestone_lag=${4:-3}  # Max allowed lag between tip and milestone
+  local test_name="$1"
+  local timeout_seconds=${2:-300}  # 5 minutes default
+  local min_block_progress=${3:-5} # Minimum blocks to consider recovery successful
+  local max_milestone_lag=${4:-3}  # Max allowed lag between tip and milestone
 
-	echo "Testing sync recovery for $test_name..."
-	echo "Waiting up to ${timeout_seconds}s for at least ${min_block_progress} new blocks and finalized blocks, and milestone lag <= ${max_milestone_lag}"
+  echo "Testing sync recovery for $test_name..."
+  echo "Waiting up to ${timeout_seconds}s for at least ${min_block_progress} new blocks and finalized blocks, and milestone lag <= ${max_milestone_lag}"
 
-	# Get initial block numbers from all stateless services
-	local initial_blocks=()
-	local initial_finalized_blocks=()
-	ALL_SERVICES=("${VALIDATORS[@]}" "${RPC_SERVICES[@]}")
+  # Get initial block numbers from all stateless services
+  local initial_blocks=()
+  local initial_finalized_blocks=()
+  ALL_SERVICES=("${VALIDATORS[@]}" "${RPC_SERVICES[@]}")
 
-	# Use first validator for finalized block checks
-	REPRESENTATIVE_SERVICE=${VALIDATORS[0]}
-	initial_finalized=$(get_finalized_block "$REPRESENTATIVE_SERVICE")
+  # Use first validator for finalized block checks
+  REPRESENTATIVE_SERVICE=${VALIDATORS[0]}
+  initial_finalized=$(get_finalized_block "$REPRESENTATIVE_SERVICE")
 
-	for service in "${ALL_SERVICES[@]}"; do
-		initial_block=$(get_block_number "$service")
-		if [[ "$initial_block" =~ ^[0-9]+$ ]]; then
-			initial_blocks+=("$service:$initial_block")
-		fi
-	done
+  for service in "${ALL_SERVICES[@]}"; do
+    initial_block=$(get_block_number "$service")
+    if [[ "$initial_block" =~ ^[0-9]+$ ]]; then
+      initial_blocks+=("$service:$initial_block")
+    fi
+  done
 
-	echo "Initial block numbers:"
-	for entry in "${initial_blocks[@]}"; do
-		echo "  $entry"
-	done
-	echo "Initial finalized block: $initial_finalized"
+  echo "Initial block numbers:"
+  for entry in "${initial_blocks[@]}"; do
+    echo "  $entry"
+  done
+  echo "Initial finalized block: $initial_finalized"
 
-	local start_time=$SECONDS
-	local recovery_confirmed=false
+  local start_time=$SECONDS
+  local recovery_confirmed=false
 
-	while [ $((SECONDS - start_time)) -lt $timeout_seconds ]; do
-		local all_progressed=true
-		local progress_details=()
-		local max_current_block=0
+  while [ $((SECONDS - start_time)) -lt $timeout_seconds ]; do
+    local all_progressed=true
+    local progress_details=()
+    local max_current_block=0
 
-		# Check regular block progress and compute current tip
-		for entry in "${initial_blocks[@]}"; do
-			IFS=':' read -r service initial_block <<< "$entry"
-			current_block=$(get_block_number "$service")
+    # Check regular block progress and compute current tip
+    for entry in "${initial_blocks[@]}"; do
+      IFS=':' read -r service initial_block <<< "$entry"
+      current_block=$(get_block_number "$service")
 
-			if [[ "$current_block" =~ ^[0-9]+$ ]]; then
-				progress=$((current_block - initial_block))
-				progress_details+=("$service: $initial_block → $current_block (+$progress)")
+      if [[ "$current_block" =~ ^[0-9]+$ ]]; then
+        progress=$((current_block - initial_block))
+        progress_details+=("$service: $initial_block → $current_block (+$progress)")
 
-				if [ $current_block -gt $max_current_block ]; then
-					max_current_block=$current_block
-				fi
+        if [ $current_block -gt $max_current_block ]; then
+          max_current_block=$current_block
+        fi
 
-				if [ $progress -lt $min_block_progress ]; then
-					all_progressed=false
-				fi
-			else
-				progress_details+=("$service: $initial_block → ERROR (RPC failed)")
-				all_progressed=false
-			fi
-		done
+        if [ $progress -lt $min_block_progress ]; then
+          all_progressed=false
+        fi
+      else
+        progress_details+=("$service: $initial_block → ERROR (RPC failed)")
+        all_progressed=false
+      fi
+    done
 
-		# Check finalized block progress
-		current_finalized=$(get_finalized_block "$REPRESENTATIVE_SERVICE")
-		if [[ "$current_finalized" =~ ^[0-9]+$ ]] && [[ "$initial_finalized" =~ ^[0-9]+$ ]]; then
-			finalized_progress=$((current_finalized - initial_finalized))
-			progress_details+=("FINALIZED: $initial_finalized → $current_finalized (+$finalized_progress)")
+    # Check finalized block progress
+    current_finalized=$(get_finalized_block "$REPRESENTATIVE_SERVICE")
+    if [[ "$current_finalized" =~ ^[0-9]+$ ]] && [[ "$initial_finalized" =~ ^[0-9]+$ ]]; then
+      finalized_progress=$((current_finalized - initial_finalized))
+      progress_details+=("FINALIZED: $initial_finalized → $current_finalized (+$finalized_progress)")
 
-			if [ $finalized_progress -lt $min_block_progress ]; then
-				all_progressed=false
-			fi
-		else
-			progress_details+=("FINALIZED: ERROR (unable to get finalized block)")
-			all_progressed=false
-		fi
+      if [ $finalized_progress -lt $min_block_progress ]; then
+        all_progressed=false
+      fi
+    else
+      progress_details+=("FINALIZED: ERROR (unable to get finalized block)")
+      all_progressed=false
+    fi
 
-		# Ensure milestone is caught up to tip within allowable lag
-		if [[ "$current_finalized" =~ ^[0-9]+$ ]] && [ "$max_current_block" -gt 0 ]; then
-			milestone_lag=$((max_current_block - current_finalized))
-			progress_details+=("MILESTONE LAG: tip=$max_current_block, finalized=$current_finalized (lag=$milestone_lag)")
-			if [ $milestone_lag -gt $max_milestone_lag ]; then
-				all_progressed=false
-			fi
-		fi
+    # Ensure milestone is caught up to tip within allowable lag
+    if [[ "$current_finalized" =~ ^[0-9]+$ ]] && [ "$max_current_block" -gt 0 ]; then
+      milestone_lag=$((max_current_block - current_finalized))
+      progress_details+=("MILESTONE LAG: tip=$max_current_block, finalized=$current_finalized (lag=$milestone_lag)")
+      if [ $milestone_lag -gt $max_milestone_lag ]; then
+        all_progressed=false
+      fi
+    fi
 
-		elapsed=$((SECONDS - start_time))
-		echo "Recovery progress at ${elapsed}s:"
-		for detail in "${progress_details[@]}"; do
-			echo "  $detail"
-		done
+    elapsed=$((SECONDS - start_time))
+    echo "Recovery progress at ${elapsed}s:"
+    for detail in "${progress_details[@]}"; do
+      echo "  $detail"
+    done
 
-		if [ "$all_progressed" = true ]; then
-			echo "✅ All services progressed ≥ $min_block_progress, finalized progressed ≥ $min_block_progress, and milestone lag ≤ $max_milestone_lag"
-			recovery_confirmed=true
-			break
-		fi
+    if [ "$all_progressed" = true ]; then
+      echo "✅ All services progressed ≥ $min_block_progress, finalized progressed ≥ $min_block_progress, and milestone lag ≤ $max_milestone_lag"
+      recovery_confirmed=true
+      break
+    fi
 
-		echo "Waiting for more block progress..."
-		sleep 10
-	done
+    echo "Waiting for more block progress..."
+    sleep 10
+  done
 
-	if [ "$recovery_confirmed" = true ]; then
-		echo "✅ Sync recovery test passed for $test_name"
-		return 0
-	else
-		echo "❌ Sync recovery test failed for $test_name - insufficient progress or excessive milestone lag within ${timeout_seconds}s"
-		return 1
-	fi
+  if [ "$recovery_confirmed" = true ]; then
+    echo "✅ Sync recovery test passed for $test_name"
+    return 0
+  else
+    echo "❌ Sync recovery test failed for $test_name - insufficient progress or excessive milestone lag within ${timeout_seconds}s"
+    return 1
+  fi
 }
 
 # Function to get block author using bor_getAuthor RPC
 get_block_author() {
-	local service_name=$1
-	local block_number=$2
-	local rpc_url=$(get_rpc_url "$service_name")
-	if [ -n "$rpc_url" ]; then
-		# Convert decimal block number to hex
-		local block_hex=$(printf "0x%x" "$block_number")
-		cast rpc bor_getAuthor "$block_hex" --rpc-url "$rpc_url" 2> /dev/null | tr -d '"' || echo ""
-	else
-		echo ""
-	fi
+  local service_name=$1
+  local block_number=$2
+  local rpc_url=$(get_rpc_url "$service_name")
+  if [ -n "$rpc_url" ]; then
+    # Convert decimal block number to hex
+    local block_hex=$(printf "0x%x" "$block_number")
+    cast rpc bor_getAuthor "$block_hex" --rpc-url "$rpc_url" 2> /dev/null | tr -d '"' || echo ""
+  else
+    echo ""
+  fi
 }
 
 # Function to get reorg count from metrics
 get_reorg_count() {
-	local service_name=$1
+  local service_name=$1
 
-	# Get metrics port URL
-	local metrics_url=$(kurtosis port print "$ENCLAVE_NAME" "$service_name" metrics 2> /dev/null)
+  # Get metrics port URL
+  local metrics_url=$(kurtosis port print "$ENCLAVE_NAME" "$service_name" metrics 2> /dev/null)
 
-	if [ -n "$metrics_url" ]; then
-		# Query prometheus metrics and extract reorg count
-		local reorg_count=$(curl -s "${metrics_url}/debug/metrics/prometheus" | grep -e "^chain_reorg_executes" | awk '{print $2}' 2> /dev/null)
-		if [[ "$reorg_count" =~ ^[0-9]+$ ]]; then
-			echo "$reorg_count"
-		else
-			echo "0"
-		fi
-	else
-		echo "0"
-	fi
+  if [ -n "$metrics_url" ]; then
+    # Query prometheus metrics and extract reorg count
+    local reorg_count=$(curl -s "${metrics_url}/debug/metrics/prometheus" | grep -e "^chain_reorg_executes" | awk '{print $2}' 2> /dev/null)
+    if [[ "$reorg_count" =~ ^[0-9]+$ ]]; then
+      echo "$reorg_count"
+    else
+      echo "0"
+    fi
+  else
+    echo "0"
+  fi
 }
 
 # Function to check block producer rotations in last N blocks
 check_block_author_diversity() {
-	local service_name=$1
-	local num_blocks=${2:-100}
-	local min_rotations=${3:-2}
+  local service_name=$1
+  local num_blocks=${2:-100}
+  local min_rotations=${3:-2}
 
-	echo "Checking block producer rotations for last $num_blocks blocks on $service_name..."
+  echo "Checking block producer rotations for last $num_blocks blocks on $service_name..."
 
-	# Get current block number
-	local current_block=$(get_block_number "$service_name")
-	if ! [[ "$current_block" =~ ^[0-9]+$ ]] || [ "$current_block" -le 0 ]; then
-		echo "❌ Failed to get current block number from $service_name"
-		return 1
-	fi
+  # Get current block number
+  local current_block=$(get_block_number "$service_name")
+  if ! [[ "$current_block" =~ ^[0-9]+$ ]] || [ "$current_block" -le 0 ]; then
+    echo "❌ Failed to get current block number from $service_name"
+    return 1
+  fi
 
-	local start_block=$((current_block - num_blocks + 1))
-	if [ $start_block -lt 1 ]; then
-		start_block=1
-	fi
+  local start_block=$((current_block - num_blocks + 1))
+  if [ $start_block -lt 1 ]; then
+    start_block=1
+  fi
 
-	echo "Checking blocks $start_block to $current_block (total: $((current_block - start_block + 1)) blocks)"
+  echo "Checking blocks $start_block to $current_block (total: $((current_block - start_block + 1)) blocks)"
 
-	# Count rotations (author changes between consecutive blocks)
-	local rotations=0
-	local total_checked=0
-	local prev_author=""
+  # Count rotations (author changes between consecutive blocks)
+  local rotations=0
+  local total_checked=0
+  local prev_author=""
 
-	for ((i = start_block; i <= current_block; i++)); do
-		author=$(get_block_author "$service_name" "$i")
-		if [ -n "$author" ] && [ "$author" != "0x0000000000000000000000000000000000000000" ]; then
-			total_checked=$((total_checked + 1))
+  for ((i = start_block; i <= current_block; i++)); do
+    author=$(get_block_author "$service_name" "$i")
+    if [ -n "$author" ] && [ "$author" != "0x0000000000000000000000000000000000000000" ]; then
+      total_checked=$((total_checked + 1))
 
-			# Check if this is a rotation (author change from previous block)
-			if [ -n "$prev_author" ] && [ "$author" != "$prev_author" ]; then
-				rotations=$((rotations + 1))
-				echo "  Rotation detected at block $i: $prev_author -> $author"
-			fi
+      # Check if this is a rotation (author change from previous block)
+      if [ -n "$prev_author" ] && [ "$author" != "$prev_author" ]; then
+        rotations=$((rotations + 1))
+        echo "  Rotation detected at block $i: $prev_author -> $author"
+      fi
 
-			prev_author="$author"
-		fi
+      prev_author="$author"
+    fi
 
-		# Progress indicator every 10 blocks
-		if [ $((i % 10)) -eq 0 ]; then
-			echo "  Checked block $i... ($rotations rotations so far)"
-		fi
-	done
+    # Progress indicator every 10 blocks
+    if [ $((i % 10)) -eq 0 ]; then
+      echo "  Checked block $i... ($rotations rotations so far)"
+    fi
+  done
 
-	echo "Found $rotations rotations in $total_checked blocks"
+  echo "Found $rotations rotations in $total_checked blocks"
 
-	if [ "$rotations" -ge "$min_rotations" ]; then
-		echo "✅ Block producer rotation check passed: $rotations rotations >= $min_rotations required"
-		return 0
-	else
-		echo "❌ Block producer rotation check failed: $rotations rotations < $min_rotations required"
-		return 1
-	fi
+  if [ "$rotations" -ge "$min_rotations" ]; then
+    echo "✅ Block producer rotation check passed: $rotations rotations >= $min_rotations required"
+    return 0
+  else
+    echo "❌ Block producer rotation check failed: $rotations rotations < $min_rotations required"
+    return 1
+  fi
 }
