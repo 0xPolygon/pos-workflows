@@ -2,8 +2,8 @@
 set -e
 
 if [ -z "${ENABLE_PRODUCER_PLANNED_DOWNTIME_TEST:-}" ]; then
-	echo "ENABLE_PRODUCER_PLANNED_DOWNTIME_TEST not set, skipping producer planned downtime setup"
-	exit 0
+  echo "ENABLE_PRODUCER_PLANNED_DOWNTIME_TEST not set, skipping producer planned downtime setup"
+  exit 0
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
