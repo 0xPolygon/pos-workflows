@@ -190,7 +190,7 @@ func main() {
 		rm.account = *acc
 	}
 
-	rm.expectedGasToCreateTransaction = big.NewInt(354658)
+	rm.expectedGasToCreateTransaction = big.NewInt(360333)
 	rm.expectedValueToStoreInContract = big.NewInt(30)
 	rm.expectedKeyToStoreInContract = "key"
 	rm.expectedSlot0Value = big.NewInt(42) // first variable set on contract
