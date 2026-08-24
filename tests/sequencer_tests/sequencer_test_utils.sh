@@ -4,7 +4,7 @@
 # Requires ENCLAVE_NAME from env; curl + jq only (no cast/polycli).
 
 # Test configuration
-POST_RIO_BLOCK=${POST_RIO_BLOCK:-140}                  # rio at 128 + margin
+POST_RIO_BLOCK=${POST_RIO_BLOCK:-140} # rio at 128 + margin
 POST_RIO_TIMEOUT_SECONDS=${POST_RIO_TIMEOUT_SECONDS:-1200}
 SLEEP_INTERVAL=${SLEEP_INTERVAL:-10}
 
@@ -74,8 +74,8 @@ get_metric() {
     echo "0"
     return
   fi
-  curl -s "http://${addr}/debug/metrics/prometheus" \
-    | awk -v m="$metric" '$1 == m { print $2; found = 1 } END { if (!found) print "0" }'
+  curl -s "http://${addr}/debug/metrics/prometheus" |
+    awk -v m="$metric" '$1 == m { print $2; found = 1 } END { if (!found) print "0" }'
 }
 
 # Sum a metric across all validators.
@@ -108,8 +108,8 @@ grep_validator_logs() {
   local pattern=$1
   local service
   for service in "${VALIDATORS[@]}"; do
-    kurtosis service logs -a "$ENCLAVE_NAME" "$service" 2> /dev/null \
-      | grep -E "$pattern" | sed "s|^|${service}: |"
+    kurtosis service logs -a "$ENCLAVE_NAME" "$service" 2> /dev/null |
+      grep -E "$pattern" | sed "s|^|${service}: |"
   done
 }
 

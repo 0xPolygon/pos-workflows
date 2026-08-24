@@ -33,9 +33,10 @@ concurrency:
 
 env:
   ENCLAVE_NAME: kurtosis-sequencer-e2e
-  # The sequence-store package versions are not publicly listable; pin a
-  # released tag here once one is published.
-  SEQUENCE_STORE_TAG: latest
+  # sequence-store publishes `dev` on every push to its default branch and
+  # version tags on `v*` releases (its docker.yml); pin a vX.Y.Z once one
+  # is cut.
+  SEQUENCE_STORE_TAG: dev
 
 jobs:
   build-bor:
