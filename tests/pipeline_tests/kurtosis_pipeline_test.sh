@@ -33,7 +33,7 @@ STATELESS_VALIDATORS=(
 PIPELINED_PLAIN_RPC="$SERVICE_PREFIX_VALIDATOR-6-$SERVICE_SUFFIX_RPC"
 PIPELINED_WITNESS_RPC="$SERVICE_PREFIX_VALIDATOR-7-$SERVICE_SUFFIX_RPC"
 STATELESS_RPC="$SERVICE_PREFIX_VALIDATOR-8-$SERVICE_SUFFIX_RPC"
-BASELINE_VALIDATOR="$SERVICE_PREFIX_VALIDATOR-9-$SERVICE_SUFFIX_VALIDATOR"
+BASELINE_NODE="$SERVICE_PREFIX_VALIDATOR-9-$SERVICE_SUFFIX_RPC"
 REFERENCE_NODE="$SERVICE_PREFIX_VALIDATOR-1-$SERVICE_SUFFIX_VALIDATOR"
 
 failures=0
@@ -90,12 +90,12 @@ diff=$((${witness%.*} - ${src%.*}))
 
 echo "=== Released-image baseline consensus check ==="
 ref_hash=$(get_block_hash "$REFERENCE_NODE" "$TARGET_BLOCK")
-base_hash=$(get_block_hash "$BASELINE_VALIDATOR" "$TARGET_BLOCK")
+base_hash=$(get_block_hash "$BASELINE_NODE" "$TARGET_BLOCK")
 echo "block $TARGET_BLOCK: reference=$ref_hash baseline=$base_hash"
 if [ -z "$base_hash" ] || [ "$base_hash" = "null" ]; then
-  fail "$BASELINE_VALIDATOR: could not fetch block $TARGET_BLOCK (baseline lagging or down)"
+  fail "$BASELINE_NODE: could not fetch block $TARGET_BLOCK (baseline lagging or down)"
 elif [ "$base_hash" != "$ref_hash" ]; then
-  fail "$BASELINE_VALIDATOR: hash mismatch vs pipelined reference at block $TARGET_BLOCK"
+  fail "$BASELINE_NODE: hash mismatch vs pipelined reference at block $TARGET_BLOCK"
 fi
 
 if [ "$failures" -gt 0 ]; then
