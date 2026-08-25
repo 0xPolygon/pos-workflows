@@ -3,7 +3,7 @@
 #
 # Mirrors kurtosis-stateless-e2e.yml (participants 1-8
 # keep the exact same indices — the stateless test suite
-# hardcodes them) and adds a released-image baseline validator as participant
+# hardcodes them) and adds a released-image baseline rpc node as participant
 # 9. The bor workflow injects `[pipeline] enable-import-src = true` into the bor
 # config template for every node; behavior then falls out per node role:
 #
@@ -67,12 +67,13 @@ polygon_pos_package:
       el_bor_sync_with_witness: true
       count: 1
 
-    # Released-image baseline: a full-sync validator on the latest published
+    # Released-image baseline: a full-sync rpc node on the latest published
     # bor release. Its BurntSushi TOML parser ignores the injected [pipeline]
     # section, making it a genuine pipeline-off cross-check: it re-executes
-    # and must accept every block the pipelined nodes produce, and the
-    # pipelined nodes must accept every block it seals.
-    - kind: validator
+    # and must accept every block the pipelined nodes produce. An rpc node
+    # rather than a validator so it doesn't perturb the 5-validator producer
+    # rotation the stateless suite's timing assertions are tuned for.
+    - kind: rpc
       cl_type: heimdall-v2
       cl_image: heimdall-v2:local
       el_type: bor
