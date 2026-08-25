@@ -109,7 +109,7 @@ setup_service_lists() {
   echo "Setting up service lists based on kurtosis configuration..."
 
   # Configuration summary
-  echo "Config: Validators ($VALIDATORS_START-$VALIDATORS_END), RPC services ($RPC_SERVICES_START-$RPC_SERVICES_END + Erigon)"
+  echo "Config: Validators ($VALIDATORS_START-$VALIDATORS_END), RPC services ($RPC_SERVICES_START-$RPC_SERVICES_END)"
 
   VALIDATORS=()
   RPC_SERVICES=()
@@ -124,11 +124,8 @@ setup_service_lists() {
     RPC_SERVICES+=("$SERVICE_PREFIX_VALIDATOR-$i-$SERVICE_SUFFIX_RPC")
   done
 
-  # Add the Erigon RPC node
-  RPC_SERVICES+=("l2-el-9-erigon-heimdall-v2-rpc")
-
   echo "Validators ($VALIDATORS_START-$VALIDATORS_END): ${VALIDATORS[*]}"
-  echo "RPC services ($RPC_SERVICES_START-$RPC_SERVICES_END + Erigon): ${RPC_SERVICES[*]}"
+  echo "RPC services ($RPC_SERVICES_START-$RPC_SERVICES_END): ${RPC_SERVICES[*]}"
 }
 
 # Function to verify service accessibility

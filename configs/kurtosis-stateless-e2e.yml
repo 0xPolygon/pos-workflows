@@ -23,7 +23,7 @@ polygon_pos_package:
       el_bor_sync_with_witness: true
       count: 2
 
-    # 4 RPC nodes.
+    # 3 RPC nodes.
     - kind: rpc
       cl_type: heimdall-v2
       cl_image: heimdall-v2:local
@@ -49,13 +49,4 @@ polygon_pos_package:
       el_image: bor:local
       el_bor_produce_witness: true
       el_bor_sync_with_witness: true
-      count: 1
-
-    - kind: rpc
-      cl_type: heimdall-v2
-      cl_image: heimdall-v2:local
-      el_type: erigon
-      el_image: 0xpolygon/erigon:latest
-      el_bor_produce_witness: false
-      el_bor_sync_with_witness: false
       count: 1
