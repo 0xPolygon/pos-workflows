@@ -50,15 +50,25 @@ metric() {
 }
 
 echo "=== Pipeline metrics per node role ==="
+# src and witness counters only move on the import path, and a validator
+# that dominates block production imports next to nothing (it seals its
+# blocks instead), so per-node activity checks are schedule-dependent.
+# Assert activity in aggregate across the witness validators; mismatch is
+# the safety property and stays per-node. The never-mining rpc nodes below
+# keep strict per-node activity checks.
+total_src=0
+total_witness=0
 for svc in "${PIPELINED_WITNESS_VALIDATORS[@]}"; do
   src=$(metric "$svc" chain_imports_pipelined_src_count)
   mismatch=$(metric "$svc" chain_imports_pipelined_root_mismatch)
   witness=$(metric "$svc" chain_witness_size_bytes_count)
   echo "$svc: src=$src mismatch=$mismatch witness=$witness"
-  [ "${src%.*}" -gt 0 ] || fail "$svc: pipeline not active (src=$src)"
+  total_src=$((total_src + ${src%.*}))
+  total_witness=$((total_witness + ${witness%.*}))
   [ "${mismatch%.*}" -eq 0 ] || fail "$svc: root mismatch detected ($mismatch)"
-  [ "${witness%.*}" -gt 0 ] || fail "$svc: no witnesses produced"
 done
+[ "$total_src" -gt 0 ] || fail "witness validators: pipeline not active on any node (aggregate src=0)"
+[ "$total_witness" -gt 0 ] || fail "witness validators: no witnesses produced on any node"
 
 for svc in "${STATELESS_VALIDATORS[@]}" "$STATELESS_RPC"; do
   src=$(metric "$svc" chain_imports_pipelined_src_count)
