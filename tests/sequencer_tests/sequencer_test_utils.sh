@@ -103,6 +103,20 @@ count_validators_with_metric() {
   echo "$count"
 }
 
+# One line per validator: how many sequencer_* series its metrics endpoint
+# serves, and the publish state. Zero series means the bor image was built
+# without the sequencer (wrong branch) or the [sequencer] config did not
+# render — a different failure than a publisher in the wrong state.
+dump_sequencer_metric_presence() {
+  local service addr series state
+  for service in "${VALIDATORS[@]}"; do
+    addr=$(kurtosis port print "$ENCLAVE_NAME" "$service" metrics 2> /dev/null | sed 's|^http://||')
+    series=$(curl -s "http://${addr}/debug/metrics/prometheus" | grep -c "^sequencer_" || true)
+    state=$(get_metric "$service" "sequencer_publish_state")
+    echo "  $service: sequencer series=$series publish_state=$state"
+  done
+}
+
 # Grep every validator's full log for a pattern; prints matching lines.
 grep_validator_logs() {
   local pattern=$1

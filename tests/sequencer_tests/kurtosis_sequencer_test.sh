@@ -31,6 +31,7 @@ test_publishers_live() {
   live=$(count_validators_with_metric "sequencer_publish_state" "1")
   if [ "$live" -ne "${#VALIDATORS[@]}" ]; then
     echo "Only $live/${#VALIDATORS[@]} validators report sequencer_publish_state=1"
+    dump_sequencer_metric_presence
     grep_validator_logs "sequencer|Sequencer" | tail -20
     return 1
   fi

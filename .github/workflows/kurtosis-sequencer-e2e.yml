@@ -47,9 +47,10 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: 0xPolygon/bor
-          # The sequencer publisher lives on the sequencing branch
-          # (PR #2355); switch this to develop once it merges there.
-          ref: sequencing
+          # The sequencer publisher is still on its PR branch
+          # (0xPolygon/bor#2355): move this to `sequencing` when that PR
+          # merges, then to `develop` when sequencing lands there.
+          ref: cffls/sequence-publisher
 
       - name: Build bor docker image
         run: docker build -t bor:local --file Dockerfile .
