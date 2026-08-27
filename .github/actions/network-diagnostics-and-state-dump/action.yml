@@ -89,25 +89,9 @@ runs:
         			continue
         		fi
 
-        		if [[ "${svc}" == *"-bor-"* ]]; then
-        			# Bor: /health returns rich node info
-        			echo "--- /health ---"
-        			curl -sf --max-time 10 "${rpc_url}/health" 2>/dev/null | jq . 2>/dev/null || echo "  ERROR: /health query failed"
-        			echo ""
-        		else
-        			# Erigon: /health is just a pass/fail checker, use JSON-RPC instead
-        			echo "--- eth_blockNumber ---"
-        			curl -sf --max-time 10 -X POST -H "Content-Type: application/json" \
-        				-d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
-        				"${rpc_url}" 2>/dev/null | jq . 2>/dev/null || echo "  ERROR: eth_blockNumber query failed"
-        			echo ""
-
-        			echo "--- net_peerCount ---"
-        			curl -sf --max-time 10 -X POST -H "Content-Type: application/json" \
-        				-d '{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":1}' \
-        				"${rpc_url}" 2>/dev/null | jq . 2>/dev/null || echo "  ERROR: net_peerCount query failed"
-        			echo ""
-        		fi
+        		echo "--- /health ---"
+        		curl -sf --max-time 10 "${rpc_url}/health" 2>/dev/null | jq . 2>/dev/null || echo "  ERROR: /health query failed"
+        		echo ""
         	done
 
         	# --- CL (Heimdall) diagnostics ---
@@ -164,7 +148,7 @@ runs:
 
     - name: Upload network diagnostics
       if: steps.enclave-check.outputs.ENCLAVE_EXISTS == 'true'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: network-diagnostics-${{ github.run_id }}
         path: ./network-diagnostics.txt
@@ -213,15 +197,9 @@ runs:
         	svc_dir="${DUMP_DIR}/${svc}"
         	mkdir -p "${svc_dir}"
 
-        	if [[ "${svc}" == *"-bor-"* ]]; then
-        		echo "  Copying Bor config+data from ${svc}..."
-        		docker cp "${container}:/etc/bor" "${svc_dir}/config" 2>/dev/null || echo "  WARN: failed to copy /etc/bor from ${svc}"
-        		docker cp "${container}:/var/lib/bor" "${svc_dir}/data" 2>/dev/null || echo "  WARN: failed to copy /var/lib/bor from ${svc}"
-        	else
-        		echo "  Copying Erigon config+data from ${svc}..."
-        		docker cp "${container}:/etc/erigon" "${svc_dir}/config" 2>/dev/null || echo "  WARN: failed to copy /etc/erigon from ${svc}"
-        		docker cp "${container}:/var/lib/erigon" "${svc_dir}/data" 2>/dev/null || echo "  WARN: failed to copy /var/lib/erigon from ${svc}"
-        	fi
+        	echo "  Copying Bor config+data from ${svc}..."
+        	docker cp "${container}:/etc/bor" "${svc_dir}/config" 2>/dev/null || echo "  WARN: failed to copy /etc/bor from ${svc}"
+        	docker cp "${container}:/var/lib/bor" "${svc_dir}/data" 2>/dev/null || echo "  WARN: failed to copy /var/lib/bor from ${svc}"
         done
 
         # --- CL state ---
@@ -244,7 +222,7 @@ runs:
 
     - name: Upload devnet state
       if: steps.enclave-check.outputs.ENCLAVE_EXISTS == 'true'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: devnet-state-${{ github.run_id }}
         path: ./devnet-state/
