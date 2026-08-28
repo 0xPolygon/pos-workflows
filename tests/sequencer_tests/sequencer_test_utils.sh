@@ -33,6 +33,9 @@ VALIDATORS_END=${VALIDATORS_END:-4}
 SERVICE_SUFFIX_VALIDATOR=${SERVICE_SUFFIX_VALIDATOR:-"bor-heimdall-v2-validator"}
 # Single-instance store services keep the bare names (no -N suffix).
 SEQSTORE_SERVICES=${SEQSTORE_SERVICES:-"seqstore-ingress seqstore-gateway"}
+# The auditor is an independent follower (own redpanda subscription); it is
+# never stopped by the outage tests, so it audits the whole run.
+AUDITOR_SERVICE=${AUDITOR_SERVICE:-"seqstore-auditor"}
 
 VALIDATORS=()
 

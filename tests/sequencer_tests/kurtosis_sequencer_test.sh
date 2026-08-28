@@ -278,6 +278,43 @@ test_recovery_floors_at_finality() {
   echo "Recovery verified: forwardjump=$jumps supersede=0 publishers=$live entries $before -> $after"
 }
 
+# Test: the independent auditor sees no revoked or reordered preconfs over
+# the whole run. The auditor is a separate follower of the store log (not
+# the producer's self-report), so it catches a producer that supersedes,
+# drops, or reorders content even if its own metrics disagree. It classifies
+# every superseded generation; a benign one drops nothing and preserves
+# order (empty-open churn at restarts/boundaries), a real one drops
+# transactions (revoked preconfs) or reorders them.
+#
+# Caveat: "dropped" and "reordered" are per-transaction, so they only bite
+# when blocks carry load. This rig runs no transaction generator, so today
+# this asserts the absence of violations rather than provokes them; it also
+# guards against a supersession storm (the pre-follow-model churn regression)
+# and becomes a real revocation/reorder check once a load step is added.
+test_auditor_no_real_violations() {
+  echo ""
+  echo "Test: the independent auditor reports no revoked or reordered preconfirmations"
+  echo ""
+
+  local logs revocations dropped_lines reorder_lines
+  logs=$(kurtosis service logs -a "$ENCLAVE_NAME" "$AUDITOR_SERVICE" 2> /dev/null | grep "auditor: block" || true)
+
+  revocations=$(echo "$logs" | grep -c "superseded" || true)
+  # A real revocation drops >=1 preconf: "N dropped" with N>0.
+  dropped_lines=$(echo "$logs" | grep -cE ", [1-9][0-9]* dropped" || true)
+  reorder_lines=$(echo "$logs" | grep -c "reordered=true" || true)
+
+  echo "Auditor: $revocations supersession(s), $dropped_lines with dropped preconfs, $reorder_lines reordered"
+
+  if [ "$dropped_lines" -ne 0 ] || [ "$reorder_lines" -ne 0 ]; then
+    echo "Auditor found real violations (dropped or reordered preconfirmations):"
+    echo "$logs" | grep -E ", [1-9][0-9]* dropped|reordered=true" | tail -20
+    return 1
+  fi
+
+  echo "No revoked or reordered preconfirmations ($revocations benign churn supersession(s))"
+}
+
 run_all_tests() {
   local failed=0
 
@@ -297,6 +334,11 @@ run_all_tests() {
   # outage/recovery sequence that needs every validator up.
   if [ $failed -eq 0 ]; then
     test_producer_takeover || failed=1
+  fi
+  # Independent audit last: it inspects the auditor's evidence for the whole
+  # run (outage, recovery, and takeover included).
+  if [ $failed -eq 0 ]; then
+    test_auditor_no_real_violations || failed=1
   fi
 
   echo ""
