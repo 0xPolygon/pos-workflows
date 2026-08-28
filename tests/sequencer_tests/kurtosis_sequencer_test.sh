@@ -18,6 +18,9 @@ export ENCLAVE_NAME
 
 setup_service_lists
 
+# Never leave a background load generator running if the suite exits early.
+trap stop_load EXIT
+
 # Test 1: publishers are live once Rio activates.
 # publish_state: 0 off, 1 live, 2 degraded, 3 resyncing, 4 failed, 5 contending.
 test_publishers_live() {
@@ -53,6 +56,45 @@ test_publishers_live() {
   fi
 
   echo "All ${#VALIDATORS[@]} publishers live; $entries entries published; displaced=0"
+}
+
+# Test: start transaction load and confirm it reaches blocks. Windows must
+# carry transactions for the later auditor check to mean anything (a revoked
+# preconf is a tx dropped from a superseded window) and for the takeover to
+# exercise real preconfirmations. Load runs in the background for the rest of
+# the suite and is stopped before the audit. When polycli is unavailable the
+# load is skipped, not failed — the suite still runs, just without the
+# load-dependent coverage.
+test_load_flowing() {
+  echo ""
+  echo "Test: transaction load reaches blocks"
+  echo ""
+
+  start_load
+  if [ -z "$LOAD_PID" ]; then
+    echo "Load not running; skipping verification (load-dependent checks will be vacuous)"
+    return 0
+  fi
+
+  local start_time=$SECONDS elapsed txc
+  while true; do
+    elapsed=$((SECONDS - start_time))
+    txc=$(get_block_txcount "${VALIDATORS[0]}")
+
+    if [ "${txc:-0}" -gt 0 ]; then
+      echo "Load flowing: latest block carries $txc transactions"
+      return 0
+    fi
+
+    if [ "$elapsed" -gt "$LOAD_VERIFY_TIMEOUT" ]; then
+      echo "Load started but no transactions are landing in blocks"
+      tail -20 "$LOAD_LOG" 2> /dev/null
+      return 1
+    fi
+
+    echo "Waiting for load to land (${elapsed}s)"
+    sleep "$SLEEP_INTERVAL"
+  done
 }
 
 # Test: "pending" state stays readable on every validator, producer or not.
@@ -286,11 +328,14 @@ test_recovery_floors_at_finality() {
 # order (empty-open churn at restarts/boundaries), a real one drops
 # transactions (revoked preconfs) or reorders them.
 #
-# Caveat: "dropped" and "reordered" are per-transaction, so they only bite
-# when blocks carry load. This rig runs no transaction generator, so today
-# this asserts the absence of violations rather than provokes them; it also
-# guards against a supersession storm (the pre-follow-model churn regression)
-# and becomes a real revocation/reorder check once a load step is added.
+# The suite runs transaction load through the disruptive phases (see
+# test_load_flowing), so "dropped" and "reordered" are exercised — a takeover
+# that revoked a preconfirmation would leave dropped transactions here.
+# Reordering is only fully provoked by independent senders; a single loader's
+# nonce order limits it, so treat reordered as best-effort. Also guards
+# against a supersession storm (the pre-follow-model churn regression). If
+# polycli was unavailable the phases ran empty and this asserts the absence
+# of violations rather than provoking them.
 test_auditor_no_real_violations() {
   echo ""
   echo "Test: the independent auditor reports no revoked or reordered preconfirmations"
@@ -318,9 +363,12 @@ test_auditor_no_real_violations() {
 run_all_tests() {
   local failed=0
 
-  # Read-only checks first, on a clean chain; the disruptive store-outage and
-  # takeover tests run after so a failure leaves the earlier signal intact.
+  # Clean-chain check first; then bring load up so every later phase (outage,
+  # recovery, takeover) runs with transactions in the windows.
   test_publishers_live || failed=1
+  if [ $failed -eq 0 ]; then
+    test_load_flowing || failed=1
+  fi
   if [ $failed -eq 0 ]; then
     test_pending_state_readable || failed=1
   fi
@@ -331,10 +379,17 @@ run_all_tests() {
     test_recovery_floors_at_finality || failed=1
   fi
   # Takeover last: it stops a validator and restarts it, so keep it after the
-  # outage/recovery sequence that needs every validator up.
+  # outage/recovery sequence that needs every validator up. Run under load so
+  # a revoked preconfirmation would leave dropped transactions for the audit.
   if [ $failed -eq 0 ]; then
     test_producer_takeover || failed=1
   fi
+
+  # Stop load, then let the store settle so the auditor has processed the
+  # trailing supersessions before we read its evidence.
+  stop_load
+  sleep "$SLEEP_INTERVAL"
+
   # Independent audit last: it inspects the auditor's evidence for the whole
   # run (outage, recovery, and takeover included).
   if [ $failed -eq 0 ]; then

@@ -37,6 +37,10 @@ env:
   # version tags on `v*` releases (its docker.yml); pin a vX.Y.Z once one
   # is cut.
   SEQUENCE_STORE_TAG: dev
+  # polycli generates the transaction load that gives the sequencer windows
+  # content, so the auditor's dropped/reordered checks and the takeover
+  # exercise real preconfirmations. Matches the sibling kurtosis legs.
+  POLYCLI_VERSION: v0.1.103
 
 jobs:
   build-bor:
@@ -171,6 +175,15 @@ jobs:
 
       - name: Inspect enclave
         run: kurtosis enclave inspect ${{ env.ENCLAVE_NAME }}
+
+      - name: Install polycli
+        run: |
+          tmp_dir=$(mktemp -d)
+          curl -L https://github.com/0xPolygon/polygon-cli/releases/download/${{ env.POLYCLI_VERSION }}/polycli_${{ env.POLYCLI_VERSION }}_linux_amd64.tar.gz | tar -xz -C "$tmp_dir"
+          mv "$tmp_dir"/* /usr/local/bin/polycli
+          rm -rf "$tmp_dir"
+          sudo chmod +x /usr/local/bin/polycli
+          polycli version
 
       - name: Run sequencer e2e tests
         id: sequencer-tests

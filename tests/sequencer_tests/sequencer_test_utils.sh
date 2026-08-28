@@ -37,6 +37,20 @@ SEQSTORE_SERVICES=${SEQSTORE_SERVICES:-"seqstore-ingress seqstore-gateway"}
 # never stopped by the outage tests, so it audits the whole run.
 AUDITOR_SERVICE=${AUDITOR_SERVICE:-"seqstore-auditor"}
 
+# Transaction load. Windows must carry transactions for the auditor's
+# dropped/reordered signals to mean anything (a revoked preconf is a tx
+# dropped from a superseded window). Sent to the rpc node — never stopped by
+# a test — using the devnet's prefunded account; a single sender is enough
+# to fill windows, so no funding step is needed.
+RPC_NODE=${RPC_NODE:-"l2-el-5-bor-heimdall-v2-rpc"}
+LOAD_PRIVATE_KEY=${LOAD_PRIVATE_KEY:-"0xd40311b5a5ca5eaeb48dfba5403bde4993ece8eccf4190e98e19fcd4754260ea"}
+LOAD_GAS_PRICE=${LOAD_GAS_PRICE:-"50000000000"}
+LOAD_RATE=${LOAD_RATE:-15}             # transactions per second
+LOAD_REQUESTS=${LOAD_REQUESTS:-100000} # ceiling; the run kills load long before this
+LOAD_VERIFY_TIMEOUT=${LOAD_VERIFY_TIMEOUT:-60}
+LOAD_PID=""
+LOAD_LOG=${LOAD_LOG:-"/tmp/sequencer-load.log"}
+
 VALIDATORS=()
 
 check_required_tools() {
@@ -208,6 +222,69 @@ other_validator() {
       return
     fi
   done
+}
+
+# Number of transactions in a service's latest block.
+get_block_txcount() {
+  local service_name=$1 rpc_url
+  rpc_url=$(get_rpc_url "$service_name")
+  if [ -z "$rpc_url" ]; then
+    echo "0"
+    return
+  fi
+  curl -s -X POST -H 'Content-Type: application/json' \
+    -d '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}' \
+    "$rpc_url" | jq -r '.result.transactions | length' 2> /dev/null || echo "0"
+}
+
+# Start background transfer load against the rpc node. A no-op (with a
+# warning) when polycli is unavailable or the node/chain can't be read, so
+# the suite still runs — the load-dependent auditor signals just stay
+# unexercised. Sets LOAD_PID when load is running.
+start_load() {
+  LOAD_PID=""
+  if ! command -v polycli &> /dev/null; then
+    echo "polycli not found; running without transaction load"
+    return 0
+  fi
+
+  local url chain_hex chain_id
+  url=$(get_rpc_url "$RPC_NODE")
+  if [ -z "$url" ]; then
+    echo "No rpc-node endpoint ($RPC_NODE); running without load"
+    return 0
+  fi
+  chain_hex=$(curl -s -X POST -H 'Content-Type: application/json' \
+    -d '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}' "$url" | jq -r '.result // ""')
+  chain_id=$(printf '%d' "$chain_hex" 2> /dev/null || echo "")
+  if [ -z "$chain_id" ]; then
+    echo "Could not read chain id from $RPC_NODE; running without load"
+    return 0
+  fi
+
+  echo "Starting transfer load: rpc=$RPC_NODE chain-id=$chain_id rate=${LOAD_RATE}/s"
+  polycli loadtest \
+    --rpc-url "$url" \
+    --private-key "${LOAD_PRIVATE_KEY#0x}" \
+    --chain-id "$chain_id" \
+    --requests "$LOAD_REQUESTS" \
+    --concurrency 2 \
+    --rate-limit "$LOAD_RATE" \
+    --mode t \
+    --legacy \
+    --gas-price "$LOAD_GAS_PRICE" \
+    > "$LOAD_LOG" 2>&1 &
+  LOAD_PID=$!
+  echo "Load started (pid $LOAD_PID)"
+}
+
+stop_load() {
+  if [ -n "$LOAD_PID" ] && kill -0 "$LOAD_PID" 2> /dev/null; then
+    echo "Stopping load (pid $LOAD_PID)"
+    kill "$LOAD_PID" 2> /dev/null || true
+    wait "$LOAD_PID" 2> /dev/null || true
+  fi
+  LOAD_PID=""
 }
 
 wait_for_block() {
