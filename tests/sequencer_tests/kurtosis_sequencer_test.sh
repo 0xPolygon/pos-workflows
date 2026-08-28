@@ -43,7 +43,147 @@ test_publishers_live() {
     return 1
   fi
 
-  echo "All ${#VALIDATORS[@]} publishers live; $entries entries published"
+  # Follow-model steady state: one owner per height, so nothing is displaced.
+  # A displaced record means a preconfirmation was revoked in normal running.
+  local displaced
+  displaced=$(sum_validator_metric "sequencer_reconcile_displacedrecords")
+  if [ "$displaced" -ne 0 ]; then
+    echo "Records displaced during steady-state operation (displaced=$displaced, want 0)"
+    return 1
+  fi
+
+  echo "All ${#VALIDATORS[@]} publishers live; $entries entries published; displaced=0"
+}
+
+# Test: "pending" state stays readable on every validator, producer or not.
+# Regression guard: a signer outside the active producer set used to stop
+# refreshing its pending snapshot (Prepare failed, commit never ran, its
+# pathdb trie layers were GC'd), so eth_call / eth_getBalance against
+# "pending" returned "missing trie node / layer stale" on non-producing
+# nodes while "latest" stayed fine.
+test_pending_state_readable() {
+  echo ""
+  echo "Test: 'pending' state is readable on all validators (producer and non-producer)"
+  echo ""
+
+  local addr='0x0000000000000000000000000000000000000001'
+  local probe
+  probe='{"jsonrpc":"2.0","method":"eth_getBalance","params":["'"$addr"'","pending"],"id":1}'
+
+  local service resp err result bad=0
+  for service in "${VALIDATORS[@]}"; do
+    resp=$(rpc_post "$service" "$probe")
+    err=$(echo "$resp" | jq -r '.error.message // ""')
+    result=$(echo "$resp" | jq -r '.result // ""')
+
+    if [ -n "$err" ]; then
+      echo "  $service: pending read FAILED: $err"
+      bad=1
+    elif [ -z "$result" ]; then
+      echo "  $service: pending read returned no result: $resp"
+      bad=1
+    else
+      echo "  $service: pending OK ($result)"
+    fi
+  done
+
+  if [ "$bad" -ne 0 ]; then
+    echo "A validator cannot serve 'pending' state — the non-producer pending-snapshot regression"
+    return 1
+  fi
+
+  echo "All ${#VALIDATORS[@]} validators serve 'pending' state"
+}
+
+# Test: the chain survives losing its active producer. Stopping the
+# producer's bor must not wedge sequencing — a backup rotates in and keeps
+# sealing. (A store window on a displaced parent used to arm a sticky hold
+# that refused the seal barrier indefinitely.) The stopped validator then
+# rejoins cleanly. Stopping only the el keeps that node's heimdall voting,
+# so the 3/4 quorum needed for downtime rotation holds.
+test_producer_takeover() {
+  echo ""
+  echo "Test: producer takeover keeps the chain live and the publisher rejoins"
+  echo ""
+
+  local producer survivor
+  producer=$(active_producer)
+  if [ -z "$producer" ]; then
+    echo "Could not identify the active producer (no validator streaming)"
+    return 1
+  fi
+  survivor=$(other_validator "$producer")
+  echo "Active producer: $producer; querying survivor: $survivor"
+
+  local adopt_before supersede_before h0
+  adopt_before=$(sum_validator_metric "sequencer_reconcile_adopt")
+  supersede_before=$(sum_validator_metric "sequencer_reconcile_supersede")
+  h0=$(get_block_number "$survivor")
+
+  stop_validator "$producer"
+  echo "Producer stopped at block $h0; waiting for rotation + resumed production..."
+
+  local start_time=$SECONDS elapsed h1 produced
+  while true; do
+    elapsed=$((SECONDS - start_time))
+    h1=$(get_block_number "$survivor")
+    produced=$((h1 - h0))
+
+    if [ "$produced" -ge "$TAKEOVER_MIN_BLOCKS" ]; then
+      echo "Chain advanced $produced blocks after takeover ($h0 -> $h1) in ${elapsed}s"
+      break
+    fi
+
+    if [ "$elapsed" -gt "$TAKEOVER_TIMEOUT_SECONDS" ]; then
+      echo "Chain did not advance $TAKEOVER_MIN_BLOCKS blocks after takeover (produced=$produced) — sequencing may have wedged"
+      grep_validator_logs "Not sealing|sticky" | tail -20
+      start_validator "$producer"
+      return 1
+    fi
+
+    echo "Waiting for takeover: produced=$produced/$TAKEOVER_MIN_BLOCKS (${elapsed}s)"
+    sleep "$SLEEP_INTERVAL"
+  done
+
+  # Evidence, not asserted: adoption fires only if the dead producer left a
+  # dangling (unsealed) window, and a displaced-parent takeover supersedes
+  # by design — both depend on timing we do not control here.
+  local adopt_after supersede_after
+  adopt_after=$(sum_validator_metric "sequencer_reconcile_adopt")
+  supersede_after=$(sum_validator_metric "sequencer_reconcile_supersede")
+  echo "Evidence: adopt $adopt_before -> $adopt_after, supersede $supersede_before -> $supersede_after"
+
+  start_validator "$producer"
+  echo "Producer restarted; waiting for it to rejoin publishing..."
+
+  local rejoin_start=$SECONDS state
+  while true; do
+    elapsed=$((SECONDS - rejoin_start))
+    state=$(get_metric "$producer" "sequencer_publish_state")
+
+    # 1 live and 5 contending are healthy rejoin states; 4 failed is not.
+    if [ "${state%.*}" = "1" ] || [ "${state%.*}" = "5" ]; then
+      echo "$producer rejoined (publish_state=$state) in ${elapsed}s"
+      break
+    fi
+
+    if [ "$elapsed" -gt "$REJOIN_TIMEOUT_SECONDS" ]; then
+      echo "$producer did not rejoin healthy (publish_state=$state)"
+      return 1
+    fi
+
+    echo "Waiting for rejoin: publish_state=$state (${elapsed}s)"
+    sleep "$SLEEP_INTERVAL"
+  done
+
+  local failed
+  failed=$(count_validators_with_metric "sequencer_publish_state" "4")
+  if [ "$failed" -ne 0 ]; then
+    echo "$failed validators in a failed publish state after takeover"
+    return 1
+  fi
+
+  echo "Takeover verified: chain stayed live, $producer rejoined, 0 failed publishers"
 }
 
 # Test 2: block production never waits on the store. Stop the store for
@@ -141,12 +281,22 @@ test_recovery_floors_at_finality() {
 run_all_tests() {
   local failed=0
 
+  # Read-only checks first, on a clean chain; the disruptive store-outage and
+  # takeover tests run after so a failure leaves the earlier signal intact.
   test_publishers_live || failed=1
+  if [ $failed -eq 0 ]; then
+    test_pending_state_readable || failed=1
+  fi
   if [ $failed -eq 0 ]; then
     test_store_outage_liveness || failed=1
   fi
   if [ $failed -eq 0 ]; then
     test_recovery_floors_at_finality || failed=1
+  fi
+  # Takeover last: it stops a validator and restarts it, so keep it after the
+  # outage/recovery sequence that needs every validator up.
+  if [ $failed -eq 0 ]; then
+    test_producer_takeover || failed=1
   fi
 
   echo ""

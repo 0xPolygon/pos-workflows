@@ -18,6 +18,15 @@ MIN_OUTAGE_BLOCKS=${MIN_OUTAGE_BLOCKS:-60}
 RECOVERY_SETTLE_SECONDS=${RECOVERY_SETTLE_SECONDS:-150}
 RECOVERY_TIMEOUT_SECONDS=${RECOVERY_TIMEOUT_SECONDS:-240}
 
+# Producer takeover. Probe window to spot the active producer, then how long
+# to allow for downtime rotation + resumed production, and for the stopped
+# validator to rejoin. Rotation needs 3/4 heimdall quorum, which stopping a
+# single validator's bor (its heimdall keeps voting) preserves.
+PRODUCER_PROBE_SECONDS=${PRODUCER_PROBE_SECONDS:-12}
+TAKEOVER_TIMEOUT_SECONDS=${TAKEOVER_TIMEOUT_SECONDS:-180}
+TAKEOVER_MIN_BLOCKS=${TAKEOVER_MIN_BLOCKS:-5}
+REJOIN_TIMEOUT_SECONDS=${REJOIN_TIMEOUT_SECONDS:-150}
+
 # Service naming (kurtosis-pos launcher conventions)
 VALIDATORS_START=${VALIDATORS_START:-1}
 VALIDATORS_END=${VALIDATORS_END:-4}
@@ -140,6 +149,61 @@ start_store() {
   for service in $SEQSTORE_SERVICES; do
     echo "Starting $service..."
     kurtosis service start "$ENCLAVE_NAME" "$service"
+  done
+}
+
+stop_validator() {
+  echo "Stopping validator $1..."
+  kurtosis service stop "$ENCLAVE_NAME" "$1"
+}
+
+start_validator() {
+  echo "Starting validator $1..."
+  kurtosis service start "$ENCLAVE_NAME" "$1"
+}
+
+# Raw JSON-RPC POST against a service; prints the response body, empty when
+# the service has no reachable rpc port (e.g. stopped).
+rpc_post() {
+  local service_name=$1 payload=$2 rpc_url
+  rpc_url=$(get_rpc_url "$service_name")
+  if [ -z "$rpc_url" ]; then
+    echo ""
+    return
+  fi
+  curl -s -X POST -H 'Content-Type: application/json' -d "$payload" "$rpc_url"
+}
+
+# The validator currently producing: the one whose publish_entries advances
+# over a short probe window (only the elected producer streams to the
+# store). Empty when none is identifiable.
+active_producer() {
+  local i before after delta best="" bestdelta=0
+  declare -a b
+  for i in "${!VALIDATORS[@]}"; do
+    b[$i]=$(get_metric "${VALIDATORS[$i]}" "sequencer_publish_entries")
+  done
+  sleep "$PRODUCER_PROBE_SECONDS"
+  for i in "${!VALIDATORS[@]}"; do
+    after=$(get_metric "${VALIDATORS[$i]}" "sequencer_publish_entries")
+    before=${b[$i]}
+    delta=$((${after%.*} - ${before%.*}))
+    if [ "$delta" -gt "$bestdelta" ]; then
+      bestdelta=$delta
+      best="${VALIDATORS[$i]}"
+    fi
+  done
+  echo "$best"
+}
+
+# First validator whose service name is not $1.
+other_validator() {
+  local exclude=$1 service
+  for service in "${VALIDATORS[@]}"; do
+    if [ "$service" != "$exclude" ]; then
+      echo "$service"
+      return
+    fi
   done
 }
 
