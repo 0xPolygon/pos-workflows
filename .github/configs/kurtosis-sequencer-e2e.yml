@@ -1,0 +1,36 @@
+polygon_pos_package:
+  network_params:
+    # 4s blocks: the pre-Rio bootstrap (blocks 1-127, publisher fully gated)
+    # forks under host load at faster cadences on small runners. Rio stays at
+    # the package default of block 128, so the fork lands ~8.5 minutes in.
+    el_block_interval_seconds: 4
+
+  # In-enclave sequence store (requires kurtosis-pos with the sequencer
+  # launcher, main as of 0cdede0). The image defaults to seqstore:local,
+  # which CI loads by pulling ghcr.io/0xpolygon/sequence-store and
+  # retagging (or building the private repo from source).
+  sequence_store_params:
+    image: seqstore:local
+    redpanda_count: 1
+    gateway_count: 1
+
+  participants:
+    # 4 publishing validators: 3/4 stake tolerates one dead bor while
+    # heimdall's downtime span rotation stays quorate.
+    - kind: validator
+      cl_type: heimdall-v2
+      cl_image: heimdall-v2:local
+      el_type: bor
+      el_image: bor:local
+      el_bor_use_sequence_store: true
+      count: 4
+
+    # 1 RPC node on the same image; it follows the gateway stream for
+    # preconf receipts once the consumer phase lands.
+    - kind: rpc
+      cl_type: heimdall-v2
+      cl_image: heimdall-v2:local
+      el_type: bor
+      el_image: bor:local
+      el_bor_use_sequence_store: true
+      count: 1
