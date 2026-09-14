@@ -270,12 +270,19 @@ test_pending_reads_are_stable() {
 
 # Test: the invalidation ledger answers, and rejects a reversed range rather
 # than returning something meaningless.
+#
+# The response shape is mid-change. 0xPolygon/bor#2388 replaces the bare array
+# of {number, reason} records with an object carrying the heights plus the
+# audit's coverage of the range, and drops `reason` from the wire. This suite
+# lands on a bor that predates that, so both shapes are accepted and each is
+# checked against its own contract; the object branch goes live on its own the
+# moment the workflow's bor ref carries #2388.
 test_invalid_preconf_blocks_contract() {
   echo ""
   echo "Test: bor_getInvalidPreconfBlocks honours its contract"
   echo ""
 
-  local head head_hex from_hex resp records err
+  local head head_hex from_hex resp err shape
   head=$(get_block_number "$RPC_NODE")
   head_hex=$(printf '0x%x' "$head")
   from_hex=$(printf '0x%x' $((head > 50 ? head - 50 : 0)))
@@ -287,25 +294,18 @@ test_invalid_preconf_blocks_contract() {
     return 1
   fi
 
-  # An array is the contract; the entries are whatever the run produced. Each
-  # one must name a block and a reason, or a client cannot act on it.
-  records=$(echo "$resp" | jq -r 'if (.result | type) == "array" then "ok" else "bad" end')
-  if [ "$records" != "ok" ]; then
-    echo "Expected an array, got: $(echo "$resp" | jq -c '.result')"
-    return 1
-  fi
+  shape=$(echo "$resp" | jq -r '.result | type')
+  case "$shape" in
+    array) invalid_preconf_array_contract "$resp" || return 1 ;;
+    object) invalid_preconf_object_contract "$resp" "$from_hex" "$head_hex" || return 1 ;;
+    *)
+      echo "Expected an array or an object, got $shape: $(echo "$resp" | jq -c '.result')"
+      return 1
+      ;;
+  esac
 
-  local bad
-  bad=$(echo "$resp" | jq -r '[.result[] | select((.number == null) or (.reason == null))] | length')
-  if [ "${bad:-0}" -ne 0 ]; then
-    echo "$bad record(s) missing number or reason: $(echo "$resp" | jq -c '.result')"
-    return 1
-  fi
-
-  echo "Ledger returned $(echo "$resp" | jq -r '.result | length') record(s) over the last 50 blocks"
-  echo "$resp" | jq -c '.result'
-
-  # A reversed range is a caller error and must be reported as one.
+  # A reversed range is a caller error under either shape, and must be
+  # reported as one rather than answered with an empty result.
   resp=$(rpc_call "$RPC_NODE" "bor_getInvalidPreconfBlocks" '["'"$head_hex"'","'"$from_hex"'"]')
   if [ -z "$(echo "$resp" | jq -r '.error.message // ""')" ]; then
     echo "A reversed range was accepted; expected an error"
@@ -314,44 +314,57 @@ test_invalid_preconf_blocks_contract() {
   echo "Reversed range rejected"
 }
 
-# Test: the audit watermarks distinguish "nothing invalid here" from "this
-# window was never compared". Skipped where the method is absent, so this
-# lands before the audit ships and goes live on its own once it does.
-test_preconf_audit_status() {
-  echo ""
-  echo "Test: bor_getPreconfAuditStatus reports the audit boundary"
-  echo ""
+# The pre-#2388 shape: every entry names a block and a reason, or a client
+# cannot act on it.
+invalid_preconf_array_contract() {
+  local resp=$1 bad
 
-  local resp code audited unaudited
-  resp=$(rpc_call "$RPC_NODE" "bor_getPreconfAuditStatus" '[]')
-  code=$(echo "$resp" | jq -r '.error.code // "none"')
-  if [ "$code" = "-32601" ]; then
-    echo "bor_getPreconfAuditStatus not available on this build; skipping"
-    return 0
-  fi
-  if [ "$code" != "none" ]; then
-    echo "Unexpected error: $(echo "$resp" | jq -c '.error')"
+  bad=$(echo "$resp" | jq -r '[.result[] | select((.number == null) or (.reason == null))] | length')
+  if [ "${bad:-0}" -ne 0 ]; then
+    echo "$bad record(s) missing number or reason: $(echo "$resp" | jq -c '.result')"
     return 1
   fi
 
-  audited=$(echo "$resp" | jq -r '.result.auditedThrough // "null"')
-  unaudited=$(echo "$resp" | jq -r '.result.unauditedThrough // "null"')
-  echo "auditedThrough=$audited unauditedThrough=$unaudited"
+  echo "Ledger (array shape) returned $(echo "$resp" | jq -r '.result | length') record(s) over the last 50 blocks"
+  echo "$resp" | jq -c '.result'
+}
 
-  # A consumer that has been following the tip since Rio should have audited
-  # something; a null watermark here means the audit never ran.
-  if [ "$audited" = "null" ]; then
-    echo "No audit watermark on a node that has been following the store"
+# The #2388 shape: heights only, plus pendingFrom saying where the audit's
+# coverage of this range stops. pendingFrom is the whole point — without it an
+# empty `invalid` cannot be told from a range nothing compared — so a missing
+# field is a failure, while a null one is the legitimate "fully audited".
+invalid_preconf_object_contract() {
+  local resp=$1 from_hex=$2 to_hex=$3 bad pending has_pending wide
+
+  bad=$(echo "$resp" | jq -r '[.result.invalid[]? | select((type != "string") or (startswith("0x") | not))] | length')
+  if [ "${bad:-0}" -ne 0 ]; then
+    echo "$bad height(s) are not hex-quantity strings: $(echo "$resp" | jq -c '.result.invalid')"
     return 1
   fi
 
-  # The marks meeting means the whole audited range went uncompared, which is
-  # what exceeding store retention looks like. On a short devnet run it means
-  # the consumer compared nothing, so it is worth surfacing.
-  if [ "$unaudited" != "null" ] && [ "$unaudited" = "$audited" ]; then
-    echo "unauditedThrough equals auditedThrough: nothing in the audited range was compared"
+  has_pending=$(echo "$resp" | jq -r '.result | has("pendingFrom")')
+  if [ "$has_pending" != "true" ]; then
+    echo "Response carries no pendingFrom: $(echo "$resp" | jq -c '.result')"
     return 1
   fi
+
+  pending=$(echo "$resp" | jq -r '.result.pendingFrom // "null"')
+  echo "Ledger (object shape) returned $(echo "$resp" | jq -r '.result.invalid | length') height(s) over [$from_hex,$to_hex], pendingFrom=$pending"
+  echo "$resp" | jq -c '.result'
+
+  if [ "$pending" != "null" ] && [ "$pending" = "$from_hex" ]; then
+    echo "pendingFrom is the range start: this node has audited none of the last 50 blocks"
+    return 1
+  fi
+
+  # The range cap only exists in the object shape, and it is a request-side
+  # cap: too wide a question is an error, not a truncated answer.
+  wide=$(rpc_call "$RPC_NODE" "bor_getInvalidPreconfBlocks" '["0x0","0x2000"]')
+  if [ -z "$(echo "$wide" | jq -r '.error.message // ""')" ]; then
+    echo "A range of 8193 heights was accepted; expected the 1024-height cap to reject it"
+    return 1
+  fi
+  echo "Over-wide range rejected"
 }
 
 run_all_tests() {
@@ -373,10 +386,6 @@ run_all_tests() {
   if [ $failed -eq 0 ]; then
     test_invalid_preconf_blocks_contract || failed=1
   fi
-  if [ $failed -eq 0 ]; then
-    test_preconf_audit_status || failed=1
-  fi
-
   echo ""
   if [ $failed -ne 0 ]; then
     echo "Sequence-store RPC tests FAILED"
