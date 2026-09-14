@@ -186,6 +186,27 @@ wait_for_progress() {
   return 1
 }
 
+# Count transactions addressed to one sink across a height range. The burst
+# episode uses this to prove its load actually reached the chain: polycli can
+# fail every submission (a fee cap, a bad mode) and still exit in a way the
+# episode tolerates, which would leave the assertions passing over an empty
+# window.
+count_txs_to_sink() {
+  local sink=$1 from=$2 through=$3 height total=0 hex n
+  sink=$(echo "$sink" | tr '[:upper:]' '[:lower:]')
+
+  for ((height = from; height <= through; height++)); do
+    hex=$(printf '0x%x' "$height")
+    # rpc_post, not the rpc suite's rpc_call wrapper: that one is local to
+    # sequencer_rpc_test.sh and is not in scope here.
+    n=$(rpc_post "$RPC_NODE" '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["'"$hex"'",true],"id":1}' |
+      jq -r --arg sink "$sink" '[.result.transactions[]? | select((.to // "") | ascii_downcase == $sink)] | length')
+    total=$((total + ${n:-0}))
+  done
+
+  echo "$total"
+}
+
 # Ingress self-fencing on an oversized record wedged the writer during manual
 # testing and stopped every preconfirmation behind it.
 ingress_self_fence_count() {

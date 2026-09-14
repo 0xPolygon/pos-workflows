@@ -36,6 +36,10 @@ PRECONF_SETTLE_SECONDS=${PRECONF_SETTLE_SECONDS:-60}
 # preconfirmation for the correctness check to mean anything.
 PRECONF_MIN_COVERAGE_PCT=${PRECONF_MIN_COVERAGE_PCT:-50}
 PRECONF_COLLECT_TIMEOUT=${PRECONF_COLLECT_TIMEOUT:-120}
+# Transactions checked per pending-block read, and how many times one receipt
+# is polled before giving up on it.
+PRECONF_BATCH=${PRECONF_BATCH:-6}
+PRECONF_POLL_ATTEMPTS=${PRECONF_POLL_ATTEMPTS:-10}
 SENT_HASHES=${SENT_HASHES:-"/tmp/sequencer-preconf-hashes.txt"}
 
 # Multicall3, at its canonical cross-chain address. go-ethereum clients probe
@@ -55,10 +59,11 @@ rpc_call() {
 # a null blockHash — that pairing is the client's only signal, so it is worth
 # asserting directly rather than inferring from timing.
 #
-# Hashes come from the pending block rather than the load generator's output:
-# the pending view is the consumer's own speculative state, so anything in it
-# should be servable as a preconfirmation, and it keeps this independent of
-# polycli's log format.
+# Only transactions caught while still speculative count. One that reached the
+# canonical chain before we looked says nothing either way, so it is excluded
+# rather than scored as a miss: counting those measures how fast the harness
+# polls, not whether the node preconfirms. The damning case is a receipt that
+# is speculative and yet unmarked.
 test_preconf_receipt_shape() {
   echo ""
   echo "Test: preconfirmed receipts are marked and carry no block hash"
@@ -71,14 +76,15 @@ test_preconf_receipt_shape() {
   fi
 
   : > "$SENT_HASHES"
-  local start_time=$SECONDS pending hashes hash resp preconf_flag block_hash
-  local preconfirmed=0 checked=0
+  local start_time=$SECONDS pending hashes hash
+  local preconfirmed=0 late=0 unmarked=0 unserved=0 sampled=0
 
-  # Walk the pending block as it changes, checking each transaction's receipt
-  # while it is still speculative.
-  while [ "$checked" -lt "$PRECONF_TX_COUNT" ] && [ $((SECONDS - start_time)) -lt "$PRECONF_COLLECT_TIMEOUT" ]; do
+  while [ "$sampled" -lt "$PRECONF_TX_COUNT" ] && [ $((SECONDS - start_time)) -lt "$PRECONF_COLLECT_TIMEOUT" ]; do
     pending=$(rpc_call "$RPC_NODE" "eth_getBlockByNumber" '["pending",true]')
-    hashes=$(echo "$pending" | jq -r '.result.transactions[]?.hash // empty')
+    # A small slice per read: the pending block holds a backlog, and checking
+    # all of it sequentially would age the tail out of its speculative window
+    # before we got to it.
+    hashes=$(echo "$pending" | jq -r '.result.transactions[]?.hash // empty' | head -"$PRECONF_BATCH")
     if [ -z "$hashes" ]; then
       sleep 1
       continue
@@ -86,40 +92,76 @@ test_preconf_receipt_shape() {
 
     while read -r hash; do
       [ -n "$hash" ] || continue
-      grep -qxF "$hash" "$SENT_HASHES" && continue
+      grep -qxF "$hash" "$SENT_HASHES" 2> /dev/null && continue
       echo "$hash" >> "$SENT_HASHES"
-      checked=$((checked + 1))
+      sampled=$((sampled + 1))
 
-      resp=$(rpc_call "$RPC_NODE" "eth_getTransactionReceipt" '["'"$hash"'"]')
-      preconf_flag=$(echo "$resp" | jq -r '.result.preconfirmation // ""')
-      block_hash=$(echo "$resp" | jq -r '.result.blockHash // "absent"')
-
-      if [ "$preconf_flag" = "true" ]; then
-        preconfirmed=$((preconfirmed + 1))
-        # The pairing is the contract. A preconfirmed receipt carrying a block
-        # hash would let a client treat speculative state as final.
-        if [ "$block_hash" != "null" ] && [ "$block_hash" != "absent" ]; then
-          echo "Preconfirmed receipt for $hash carries blockHash $block_hash, want null"
-          return 1
-        fi
-      fi
+      case "$(classify_receipt "$hash")" in
+        preconfirmed) preconfirmed=$((preconfirmed + 1)) ;;
+        late) late=$((late + 1)) ;;
+        unmarked) unmarked=$((unmarked + 1)) ;;
+        *) unserved=$((unserved + 1)) ;;
+      esac
     done <<< "$hashes"
   done
 
-  if [ "$checked" -eq 0 ]; then
-    echo "No transactions ever appeared in the pending block; the consumer is not building a speculative view"
-    tail -20 "$LOAD_LOG" 2> /dev/null
+  echo "sampled=$sampled preconfirmed=$preconfirmed already-canonical=$late unmarked=$unmarked never-served=$unserved"
+
+  # A speculative receipt without the flag would let a client treat
+  # unconfirmed state as final, which is the failure that matters most.
+  if [ "$unmarked" -ne 0 ]; then
+    echo "$unmarked receipt(s) had a null blockHash but no preconfirmation flag"
     return 1
   fi
 
-  echo "Sampled $checked pending transactions; $preconfirmed were served as preconfirmations"
+  local observed=$((preconfirmed + unserved))
+  if [ "$observed" -eq 0 ]; then
+    echo "Every sampled transaction was already canonical; the window was never observed"
+    return 1
+  fi
 
-  local pct=$((preconfirmed * 100 / checked))
+  local pct=$((preconfirmed * 100 / observed))
   if [ "$pct" -lt "$PRECONF_MIN_COVERAGE_PCT" ]; then
-    echo "Only ${pct}% were preconfirmed (want >=${PRECONF_MIN_COVERAGE_PCT}%); the consumer is not serving the store"
+    echo "Only ${pct}% of transactions caught pre-canonical were preconfirmed (want >=${PRECONF_MIN_COVERAGE_PCT}%)"
     return 1
   fi
-  echo "Preconfirmation coverage ${pct}%"
+  echo "Preconfirmation coverage ${pct}% of $observed transactions caught while speculative"
+}
+
+# One receipt, polled briefly because a transaction enters the pending block
+# before its store round trip finishes. Prints exactly one of:
+#   preconfirmed - marked, with a null blockHash
+#   unmarked     - speculative receipt with no preconfirmation flag
+#   late         - already canonical, so the window was missed
+#   unserved     - no receipt inside the window
+classify_receipt() {
+  local hash=$1 attempt=0 resp flag block_hash
+  while [ "$attempt" -lt "$PRECONF_POLL_ATTEMPTS" ]; do
+    resp=$(rpc_call "$RPC_NODE" "eth_getTransactionReceipt" '["'"$hash"'"]')
+    flag=$(echo "$resp" | jq -r '.result.preconfirmation // ""')
+    block_hash=$(echo "$resp" | jq -r 'if .result == null then "none" elif .result.blockHash == null then "null" else "set" end')
+
+    if [ "$flag" = "true" ]; then
+      if [ "$block_hash" != "null" ]; then
+        # Breaks the pairing the client depends on; surfaced by the caller's
+        # unmarked/fail path rather than silently accepted.
+        echo "unmarked"
+        return
+      fi
+      echo "preconfirmed"
+      return
+    fi
+    if [ "$block_hash" = "set" ]; then
+      echo "late"
+      return
+    fi
+    if [ "$block_hash" = "null" ]; then
+      echo "unmarked"
+      return
+    fi
+    attempt=$((attempt + 1))
+  done
+  echo "unserved"
 }
 
 # Test: every transaction that was preconfirmed ended up on the canonical

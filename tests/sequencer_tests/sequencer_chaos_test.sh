@@ -30,12 +30,37 @@ echo "Chaos seed: $CHAOS_SEED (export CHAOS_SEED=$CHAOS_SEED to replay)"
 CURRENT_REPAIR=""
 RANDOM_REPAIR=""
 
-# Oversized-record burst. 32KB per transaction across a couple of hundred
-# transactions gives the bundler enough material to build a message over the
-# topic limit if it ever stops capping.
-LARGE_TX_COUNT=${LARGE_TX_COUNT:-200}
-LARGE_TX_RATE=${LARGE_TX_RATE:-20}
-LARGE_TX_DATA_SIZE=${LARGE_TX_DATA_SIZE:-32768}
+# Oversized-record burst. Bundling transactions into one store message used to
+# build a message over the topic's 1MB limit, which self-fenced the ingress
+# permanently and stopped every preconfirmation behind it.
+#
+# The payload is calldata, not storage: polycli's store mode writes the bytes
+# into a contract at ~20k gas per word, which puts a 32KB transaction over the
+# node's tx fee cap so every submission is rejected and the episode proves
+# nothing. Zero-byte calldata costs 4 gas each, so 120KB is ~491k gas. It goes
+# to an unallocated address rather than a deployed contract: calldata to an
+# account with no code is valid, costs only the calldata, and needs no
+# deployment step.
+#
+# These sizes are measured, not guessed. Against an ingress without the fix,
+# on a devnet with max.message.bytes=1048576:
+#
+#   32KB  x 400 mined, ~1.3MB/block   no self-fence, nothing logged
+#   120KB x 240 mined, ~7MB/block     8 self-fences, MESSAGE_TOO_LARGE
+#
+# So 32KB does not reach the path at all and 120KB does; the same 120KB burst
+# against an ingress with the fix stays clean. 120KB also sits just under the
+# txpool's 128KB per-transaction ceiling, above which submissions are rejected
+# outright. Lowering the payload silently disarms the episode — it will pass
+# without exercising anything, which assert_burst_landed cannot detect because
+# the transactions do land, they are simply too small to coalesce past 1MB.
+LARGE_TX_COUNT=${LARGE_TX_COUNT:-120}
+LARGE_TX_RATE=${LARGE_TX_RATE:-30}
+LARGE_TX_DATA_SIZE=${LARGE_TX_DATA_SIZE:-122880}
+LARGE_TX_SINK=${LARGE_TX_SINK:-"0x000000000000000000000000000000000000dEaD"}
+# Senders in flight. Each holds its own payload, so a memory-constrained
+# runner can lower this without changing what the burst proves.
+LARGE_TX_CONCURRENCY=${LARGE_TX_CONCURRENCY:-4}
 
 # Any exit path must undo the fault and stop the background samplers, or the
 # enclave is left broken for whatever runs next.
@@ -202,21 +227,37 @@ test_large_calldata_does_not_wedge_the_store() {
   # contract-call mode and a deployed contract address). Each transaction
   # stays well under the 1MB topic limit on its own, so only a bundle that
   # ignores the cap can build an oversized record.
-  echo "Sending $LARGE_TX_COUNT transactions carrying ${LARGE_TX_DATA_SIZE}B each"
+  local head_before calldata
+  head_before=$(get_block_number "${VALIDATORS[0]}")
+  calldata="0x$(printf '0%.0s' $(seq 1 $((LARGE_TX_DATA_SIZE * 2))))"
+
+  echo "Sending $LARGE_TX_COUNT transactions carrying ${LARGE_TX_DATA_SIZE}B of calldata each"
   polycli loadtest \
     --rpc-url "$url" \
     --private-key "${LOAD_PRIVATE_KEY#0x}" \
     --chain-id "$chain_id" \
     --requests "$LARGE_TX_COUNT" \
-    --concurrency 4 \
+    --concurrency "$LARGE_TX_CONCURRENCY" \
     --rate-limit "$LARGE_TX_RATE" \
-    --mode s \
-    --store-data-size "$LARGE_TX_DATA_SIZE" \
+    --mode cc \
+    --contract-address "$LARGE_TX_SINK" \
+    --calldata "$calldata" \
     --legacy \
     --gas-price "$LOAD_GAS_PRICE" \
     > /tmp/large-calldata-load.log 2>&1 || echo "  load exited non-zero (tolerated; the store-side assertions are what matter)"
 
   sleep "$SLEEP_INTERVAL"
+
+  # Before trusting any assertion below, prove the burst reached the chain.
+  local head_after landed
+  head_after=$(get_block_number "${VALIDATORS[0]}")
+  landed=$(count_txs_to_sink "$LARGE_TX_SINK" "$head_before" "$head_after")
+  echo "  burst transactions mined: $landed of $LARGE_TX_COUNT (blocks $head_before..$head_after)"
+  if [ "${landed:-0}" -lt $((LARGE_TX_COUNT / 4)) ]; then
+    echo "  burst did not reach the chain; the assertions below would pass over an empty window"
+    tail -5 /tmp/large-calldata-load.log 2> /dev/null
+    return 1
+  fi
 
   assert_no_new_ingress_self_fence "$fence_baseline" || return 1
 
@@ -232,6 +273,22 @@ test_large_calldata_does_not_wedge_the_store() {
     return 1
   fi
   echo "  store still publishing after the burst (entries=$entries)"
+
+  # A summed entry count hides a single dead publisher, and the failure this
+  # burst can provoke is exactly that: where the store rejects an oversized
+  # entry as MALFORMED rather than self-fencing, the producer can disable its
+  # own publishing and never re-enable it, so the chain keeps building while
+  # that node silently stops preconfirming. Checked per publisher for that
+  # reason.
+  local live
+  live=$(count_validators_with_metric "sequencer_publish_state" "1")
+  if [ "$live" -ne "${#VALIDATORS[@]}" ]; then
+    echo "  only $live/${#VALIDATORS[@]} publishers live after the burst"
+    dump_sequencer_metric_presence
+    grep_validator_logs "Sequencer publishing disabled|ACK_STATUS_MALFORMED" | tail -5
+    return 1
+  fi
+  echo "  all ${#VALIDATORS[@]} publishers still live"
 }
 
 run_all_chaos() {
