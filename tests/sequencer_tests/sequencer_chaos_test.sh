@@ -49,14 +49,31 @@ RANDOM_REPAIR=""
 #   120KB x 240 mined, ~7MB/block     8 self-fences, MESSAGE_TOO_LARGE
 #
 # So 32KB does not reach the path at all and 120KB does; the same 120KB burst
-# against an ingress with the fix stays clean. 120KB also sits just under the
-# txpool's 128KB per-transaction ceiling, above which submissions are rejected
-# outright. Lowering the payload silently disarms the episode — it will pass
-# without exercising anything, which assert_burst_landed cannot detect because
-# the transactions do land, they are simply too small to coalesce past 1MB.
+# against an ingress with the fix stays clean. Lowering the payload silently
+# disarms the episode — it will pass without exercising anything, which
+# assert_burst_landed cannot detect because the transactions do land, they are
+# simply too small to coalesce past 1MB.
+#
+# 60KB is nonetheless the size here, because the payload rides in argv and
+# Linux caps a single argument at MAX_ARG_STRLEN (32 pages, 131072 bytes)
+# where macOS allows far more: 120KB encodes to 245762 hex characters, which
+# runs on a laptop and cannot run in CI ("Argument list too long"). 60KB
+# encodes to 122882, inside the limit.
+#
+# That should still reach the path. A record is capped by bytes before it is
+# capped by the 64-transaction coalesce count, so 18 pending 60KB transactions
+# fill 1MB where 33 were needed at 32KB — well inside the count either way,
+# and far likelier to be in flight together. It is reasoning, not a
+# measurement: with bor's own cap now in place the assertion below passes
+# whether or not the cap engaged, so a green run does not prove the size
+# still arms it. The table above is the record that the path can fence.
 LARGE_TX_COUNT=${LARGE_TX_COUNT:-120}
 LARGE_TX_RATE=${LARGE_TX_RATE:-30}
-LARGE_TX_DATA_SIZE=${LARGE_TX_DATA_SIZE:-122880}
+LARGE_TX_DATA_SIZE=${LARGE_TX_DATA_SIZE:-61440}
+# argvLimit is Linux's per-argument ceiling. Checked rather than assumed, so
+# raising the payload fails here with a reason instead of inside polycli a CI
+# run later.
+LARGE_TX_ARGV_LIMIT=${LARGE_TX_ARGV_LIMIT:-131072}
 LARGE_TX_SINK=${LARGE_TX_SINK:-"0x000000000000000000000000000000000000dEaD"}
 # Senders in flight. Each holds its own payload, so a memory-constrained
 # runner can lower this without changing what the burst proves.
@@ -222,14 +239,19 @@ test_large_calldata_does_not_wedge_the_store() {
   local fence_baseline
   fence_baseline=$(ingress_self_fence_count)
 
-  # store mode writes --store-data-size bytes into a dynamic byte array, which
-  # is polycli's supported way to send a large payload (--calldata needs
-  # contract-call mode and a deployed contract address). Each transaction
+  # contract-call mode with calldata to an account that has no code: valid,
+  # costs only the calldata, and needs no deployment step. Each transaction
   # stays well under the 1MB topic limit on its own, so only a bundle that
   # ignores the cap can build an oversized record.
   local head_before calldata
   head_before=$(get_block_number "${VALIDATORS[0]}")
-  calldata="0x$(printf '0%.0s' $(seq 1 $((LARGE_TX_DATA_SIZE * 2))))"
+  calldata="0x$(printf '%0*d' $((LARGE_TX_DATA_SIZE * 2)) 0)"
+
+  if [ "${#calldata}" -gt "$LARGE_TX_ARGV_LIMIT" ]; then
+    echo "  calldata is ${#calldata} characters, over the $LARGE_TX_ARGV_LIMIT argv limit;" \
+      "lower LARGE_TX_DATA_SIZE (see the note on it)"
+    return 1
+  fi
 
   echo "Sending $LARGE_TX_COUNT transactions carrying ${LARGE_TX_DATA_SIZE}B of calldata each"
   polycli loadtest \
