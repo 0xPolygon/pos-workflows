@@ -97,7 +97,9 @@ jobs:
       - build-bor
       - build-heimdall-v2
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Three suites share one enclave: functional (~25m, most of it reaching
+    # Rio), rpc (~5m), chaos (~10m).
+    timeout-minutes: 75
     # packages: read lets the default GITHUB_TOKEN pull the sequence-store
     # ghcr package once this repo is granted access on it.
     permissions:
@@ -190,8 +192,23 @@ jobs:
         working-directory: pos-workflows/tests/sequencer_tests
         run: bash kurtosis_sequencer_test.sh
 
+      - name: Run sequencer rpc tests
+        id: sequencer-rpc-tests
+        working-directory: pos-workflows/tests/sequencer_tests
+        run: bash sequencer_rpc_test.sh
+
+      # Last: every episode breaks a store component, so the enclave is left
+      # perturbed even when all of them repair cleanly.
+      - name: Run sequencer chaos tests
+        id: sequencer-chaos-tests
+        working-directory: pos-workflows/tests/sequencer_tests
+        run: bash sequencer_chaos_test.sh
+
       - name: Collect network diagnostics and dump devnet state
-        if: always() && steps.sequencer-tests.outcome == 'failure'
+        if: |
+          always() && (steps.sequencer-tests.outcome == 'failure'
+          || steps.sequencer-rpc-tests.outcome == 'failure'
+          || steps.sequencer-chaos-tests.outcome == 'failure')
         uses: ./pos-workflows/.github/actions/network-diagnostics-and-state-dump
         with:
           enclave_name: ${{ env.ENCLAVE_NAME }}
