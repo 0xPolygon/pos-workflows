@@ -382,7 +382,7 @@ wait_for_mining() {
     for test_name in "${pending_txs[@]}"; do
       local tx_hash="${tx_hashes[$test_name]}"
       local receipt
-      receipt=$(timeout 30 cast receipt "$tx_hash" --rpc-url "$rpc_url" --json 2> /dev/null)
+      receipt=$(timeout 30 cast receipt "$tx_hash" --rpc-url "$rpc_url" --json 2> /dev/null | jq -c 'if type == "object" and has("schema_version") then .data else . end' 2> /dev/null)
       if [ -z "$receipt" ] || [ "$receipt" = "null" ]; then
         still_pending+=("$test_name")
       fi

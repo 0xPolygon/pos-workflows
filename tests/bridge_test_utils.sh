@@ -27,13 +27,13 @@ test_bridge_l1_to_l2() {
 
   # Mint ERC721.
   local total_supply token_id
-  total_supply=$(cast call --rpc-url "${L1_RPC_URL}" --json "${L1_ERC721_TOKEN_ADDRESS}" "totalSupply()(uint)" | jq --raw-output '.[0]')
+  total_supply=$(cast call --rpc-url "${L1_RPC_URL}" --json "${L1_ERC721_TOKEN_ADDRESS}" "totalSupply()(uint)" | jq --raw-output '(.data? // .)[0]')
   token_id=$((total_supply + 1))
 
   local address
   address=$(cast wallet address --private-key "${PRIVATE_KEY}")
   local initial_l2_erc721
-  initial_l2_erc721=$(cast call --rpc-url "${L2_RPC_URL}" --json "${L2_ERC721_TOKEN_ADDRESS}" "balanceOf(address)(uint)" "${address}" | jq --raw-output '.[0]')
+  initial_l2_erc721=$(cast call --rpc-url "${L2_RPC_URL}" --json "${L2_ERC721_TOKEN_ADDRESS}" "balanceOf(address)(uint)" "${address}" | jq --raw-output '(.data? // .)[0]')
 
   echo "Minting ERC721 token (id: ${token_id})..."
   cast send --rpc-url "${L1_RPC_URL}" --private-key "${PRIVATE_KEY}" \

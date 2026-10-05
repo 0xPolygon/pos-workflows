@@ -9,7 +9,7 @@ source "$SCRIPT_DIR/pos_test_utils.sh"
 
 generate_new_keypair() {
   local mnemonic private_key address public_key
-  mnemonic=$(cast wallet new-mnemonic --json | jq --raw-output '.mnemonic')
+  mnemonic=$(cast wallet new-mnemonic --json | jq --raw-output '(.data? // .).mnemonic')
   private_key=$(cast wallet derive-private-key "${mnemonic}" 0)
   address=$(cast wallet address "${private_key}")
   public_key=$(cast wallet public-key --raw-private-key "${private_key}")
