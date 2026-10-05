@@ -83,7 +83,7 @@ verify_receipts() {
 
     tx_hash="${tx_hashes[$name]}"
     receipt=$(timeout 30 cast receipt "$tx_hash" --rpc-url "$RPC_URL" --json 2> /dev/null)
-    status=$(echo "$receipt" | jq -r '.status // "0x0"')
+    status=$(echo "$receipt" | jq -r '(.data? // .).status // "0x0"')
 
     if [ "$status" = "0x1" ]; then
       passed=$((passed + 1))
@@ -111,7 +111,7 @@ verify_receipts() {
 
     tx_hash="${tx_hashes[$test_name]}"
     receipt=$(timeout 30 cast receipt "$tx_hash" --rpc-url "$RPC_URL" --json 2> /dev/null)
-    status=$(echo "$receipt" | jq -r '.status // "0x0"')
+    status=$(echo "$receipt" | jq -r '(.data? // .).status // "0x0"')
 
     if [ "$status" = "0x1" ]; then
       passed=$((passed + 1))

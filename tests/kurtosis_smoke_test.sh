@@ -43,7 +43,7 @@ get_block_hash() {
     echo ""
     return
   fi
-  cast block "$block_number" --rpc-url "$rpc_url" --json 2> /dev/null | jq -r '.hash // empty'
+  cast block "$block_number" --rpc-url "$rpc_url" --json 2> /dev/null | jq -r '(.data? // .).hash // empty'
 }
 
 wait_for_block() {
@@ -231,7 +231,7 @@ test_evm_opcode_coverage() {
 
     tx_hash="${tx_hashes[$test_name]}"
     receipt=$(timeout 30 cast receipt "$tx_hash" --rpc-url "$first_rpc_url" --json 2> /dev/null)
-    status=$(echo "$receipt" | jq -r '.status // "0x0"')
+    status=$(echo "$receipt" | jq -r '(.data? // .).status // "0x0"')
 
     if [ "$status" != "0x1" ]; then
       failed=$((failed + 1))
@@ -240,7 +240,7 @@ test_evm_opcode_coverage() {
     fi
 
     baseline_receipt=$(timeout 30 cast receipt "$tx_hash" --rpc-url "$baseline_rpc_url" --json 2> /dev/null)
-    baseline_status=$(echo "$baseline_receipt" | jq -r '.status // empty')
+    baseline_status=$(echo "$baseline_receipt" | jq -r '(.data? // .).status // empty')
 
     if [ "$baseline_status" != "0x1" ]; then
       failed=$((failed + 1))

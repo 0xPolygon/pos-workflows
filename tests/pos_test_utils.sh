@@ -134,7 +134,7 @@ _assert_token_balance_gte() {
       return 1
     fi
     local balance
-    balance=$(cast call --json --rpc-url "${rpc_url}" "${contract}" "balanceOf(address)(uint)" "${address}" | jq --raw-output '.[0]')
+    balance=$(cast call --json --rpc-url "${rpc_url}" "${contract}" "balanceOf(address)(uint)" "${address}" | jq --raw-output '(.data? // .)[0]')
     echo "[$(date '+%H:%M:%S')] balance=${balance} target=${target}"
     if [ "${balance}" -ge "${target}" ]; then
       return 0
