@@ -8,6 +8,31 @@
 # metrics per node role and brings the released-image baseline (participant
 # 9, outside the stateless suite's service lists) into the hash-consensus
 # check.
+#
+# Two node classes self-gate pipelined SRC off, and this script asserts that
+# they do:
+#
+#   - stateless-sync nodes, which consume a witness rather than computing a
+#     root of their own;
+#   - witness-PRODUCING nodes, because the SRC witness is derived from a
+#     FlatDiff and CommitSnapshot drains the shared, attribution-free reader
+#     into it. That record carries the speculative block prefetcher's reads,
+#     and how far the prefetcher got before the block finished is wall-clock
+#     dependent, so two nodes importing the same block derive witnesses of
+#     different sizes -- which WIT/2's cross-peer page-count check treats as
+#     a misbehaving peer. See bor
+#     core.TestPipelinedSRCDiffCarriesBlockPrefetcherReads.
+#
+# That leaves participant 6, the plain pipelined rpc node, as the one node
+# exercising the pipelined SRC path end to end. When read attribution lands
+# on the shared reader, bor drops its guard and the witness nodes below move
+# back into the pipelined group.
+#
+# TRANSITIONAL: bor's workflow pins this repo at main, so a strict `src == 0`
+# here would fail every bor PR until the guard is on bor develop. Until then
+# the witness nodes report src without asserting on it; the safety property
+# (root mismatch) and witness production stay strict throughout. Tighten the
+# two marked checks to `-eq 0` once bor #2405 has merged.
 set -euo pipefail
 
 # Source utility functions from the stateless suite (service naming, block
@@ -21,7 +46,7 @@ ENCLAVE_NAME=${ENCLAVE_NAME:-"kurtosis-pipeline-e2e"}
 export ENCLAVE_NAME
 
 # Nodes by role (indices fixed by configs/kurtosis-pipeline-e2e.yml).
-PIPELINED_WITNESS_VALIDATORS=(
+WITNESS_VALIDATORS=(
   "$SERVICE_PREFIX_VALIDATOR-1-$SERVICE_SUFFIX_VALIDATOR"
   "$SERVICE_PREFIX_VALIDATOR-2-$SERVICE_SUFFIX_VALIDATOR"
   "$SERVICE_PREFIX_VALIDATOR-3-$SERVICE_SUFFIX_VALIDATOR"
@@ -31,7 +56,7 @@ STATELESS_VALIDATORS=(
   "$SERVICE_PREFIX_VALIDATOR-5-$SERVICE_SUFFIX_VALIDATOR"
 )
 PIPELINED_PLAIN_RPC="$SERVICE_PREFIX_VALIDATOR-6-$SERVICE_SUFFIX_RPC"
-PIPELINED_WITNESS_RPC="$SERVICE_PREFIX_VALIDATOR-7-$SERVICE_SUFFIX_RPC"
+WITNESS_RPC="$SERVICE_PREFIX_VALIDATOR-7-$SERVICE_SUFFIX_RPC"
 STATELESS_RPC="$SERVICE_PREFIX_VALIDATOR-8-$SERVICE_SUFFIX_RPC"
 BASELINE_NODE="$SERVICE_PREFIX_VALIDATOR-9-$SERVICE_SUFFIX_RPC"
 REFERENCE_NODE="$SERVICE_PREFIX_VALIDATOR-1-$SERVICE_SUFFIX_VALIDATOR"
@@ -50,24 +75,21 @@ metric() {
 }
 
 echo "=== Pipeline metrics per node role ==="
-# src and witness counters only move on the import path, and a validator
-# that dominates block production imports next to nothing (it seals its
-# blocks instead), so per-node activity checks are schedule-dependent.
-# Assert activity in aggregate across the witness validators; mismatch is
-# the safety property and stays per-node. The never-mining rpc nodes below
-# keep strict per-node activity checks.
-total_src=0
+# Witness production forces pipelined SRC off, so src goes to 0 per node
+# (reported, not asserted -- see TRANSITIONAL above).
+# Witnesses must still be produced: the witness counter moves on the import
+# path, and a validator that dominates block production imports next to
+# nothing (it seals its blocks instead), so assert that one in aggregate.
 total_witness=0
-for svc in "${PIPELINED_WITNESS_VALIDATORS[@]}"; do
+for svc in "${WITNESS_VALIDATORS[@]}"; do
   src=$(metric "$svc" chain_imports_pipelined_src_count)
   mismatch=$(metric "$svc" chain_imports_pipelined_root_mismatch)
   witness=$(metric "$svc" chain_witness_size_bytes_count)
-  echo "$svc: src=$src mismatch=$mismatch witness=$witness"
-  total_src=$((total_src + ${src%.*}))
+  echo "$svc: src=$src mismatch=$mismatch witness=$witness (witness producer — pipeline must self-gate off)"
   total_witness=$((total_witness + ${witness%.*}))
+  # TIGHTEN AFTER bor #2405: [ "${src%.*}" -eq 0 ] || fail "$svc: pipeline ran on a witness-producing node (src=$src)"
   [ "${mismatch%.*}" -eq 0 ] || fail "$svc: root mismatch detected ($mismatch)"
 done
-[ "$total_src" -gt 0 ] || fail "witness validators: pipeline not active on any node (aggregate src=0)"
 [ "$total_witness" -gt 0 ] || fail "witness validators: no witnesses produced on any node"
 
 for svc in "${STATELESS_VALIDATORS[@]}" "$STATELESS_RPC"; do
@@ -84,19 +106,18 @@ echo "$PIPELINED_PLAIN_RPC: src=$src mismatch=$mismatch witness=$witness"
 [ "${mismatch%.*}" -eq 0 ] || fail "$PIPELINED_PLAIN_RPC: root mismatch detected"
 [ "${witness%.*}" -eq 0 ] || fail "$PIPELINED_PLAIN_RPC: produced witnesses with witness production off"
 
-# Witness provenance: on a non-mining full-sync witness producer, every
-# witness must come from the pipelined SRC completion path — the counters
-# track each other 1:1 (small tolerance for the in-flight block at sample
-# time). This is the assertion that proves stateless nodes are consuming
-# pipelined-SRC-produced witnesses rather than inline ones.
-src=$(metric "$PIPELINED_WITNESS_RPC" chain_imports_pipelined_src_count)
-mismatch=$(metric "$PIPELINED_WITNESS_RPC" chain_imports_pipelined_root_mismatch)
-witness=$(metric "$PIPELINED_WITNESS_RPC" chain_witness_size_bytes_count)
-echo "$PIPELINED_WITNESS_RPC: src=$src mismatch=$mismatch witness=$witness"
-[ "${mismatch%.*}" -eq 0 ] || fail "$PIPELINED_WITNESS_RPC: root mismatch detected"
-diff=$((${witness%.*} - ${src%.*}))
-[ "${diff#-}" -le 2 ] || fail "$PIPELINED_WITNESS_RPC: witness/src divergence ($witness vs $src) — witnesses not coming from the pipelined SRC path"
-[ "${src%.*}" -gt 0 ] || fail "$PIPELINED_WITNESS_RPC: pipeline not active"
+# Witness provenance: this node never mines, so every block reaches it by
+# import and it must still produce a witness for each. Once the bor guard is
+# on develop those come from the inline, non-pipelined path with pipelined
+# SRC self-gated off; a node showing both counters moving is running the
+# leaky FlatDiff witness path.
+src=$(metric "$WITNESS_RPC" chain_imports_pipelined_src_count)
+mismatch=$(metric "$WITNESS_RPC" chain_imports_pipelined_root_mismatch)
+witness=$(metric "$WITNESS_RPC" chain_witness_size_bytes_count)
+echo "$WITNESS_RPC: src=$src mismatch=$mismatch witness=$witness"
+[ "${mismatch%.*}" -eq 0 ] || fail "$WITNESS_RPC: root mismatch detected"
+# TIGHTEN AFTER bor #2405: [ "${src%.*}" -eq 0 ] || fail "$WITNESS_RPC: pipeline ran on a witness-producing node (src=$src)"
+[ "${witness%.*}" -gt 0 ] || fail "$WITNESS_RPC: no witnesses produced"
 
 echo "=== Released-image baseline consensus check ==="
 ref_hash=$(get_block_hash "$REFERENCE_NODE" "$TARGET_BLOCK")
