@@ -18,6 +18,9 @@ VALIDATORS_START=${VALIDATORS_START:-1}
 VALIDATORS_END=${VALIDATORS_END:-5}
 RPC_SERVICES_START=${RPC_SERVICES_START:-6}
 RPC_SERVICES_END=${RPC_SERVICES_END:-8}
+# Stateless rpc node on the released bor image. Kept outside RPC_SERVICES so
+# the tests above don't depend on the release; it has its own sync check.
+RELEASED_STATELESS_RPC_INDEX=${RELEASED_STATELESS_RPC_INDEX:-9}
 
 # Service naming patterns
 SERVICE_PREFIX_VALIDATOR=${SERVICE_PREFIX_VALIDATOR:-"l2-el"}
@@ -408,6 +411,20 @@ get_reorg_count() {
     fi
   else
     echo "0"
+  fi
+}
+
+# Function to get the number of peers a node has dropped, from metrics.
+# Prints nothing if the metric can't be read.
+get_peer_drops() {
+  local service_name=$1
+  local metrics_url
+  metrics_url=$(kurtosis port print "$ENCLAVE_NAME" "$service_name" metrics 2> /dev/null)
+  [ -n "$metrics_url" ] || return 0
+  local drops
+  drops=$(curl -s "${metrics_url}/debug/metrics/prometheus" | grep -e "^p2p_peers_drops " | awk '{print $2}' 2> /dev/null)
+  if [[ "$drops" =~ ^[0-9]+$ ]]; then
+    echo "$drops"
   fi
 }
 
