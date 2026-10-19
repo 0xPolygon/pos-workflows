@@ -799,7 +799,8 @@ type spanResponse struct {
 const (
 	defaultStateFile = "/tmp/producer_planned_downtime_state.json"
 
-	minStartBlock                = 128
+	// Above 100 so heimdall's block-time average skips the genesis timestamp gap.
+	minStartBlock                = 101
 	downtimeStartSecondsInFuture = 180 // 3 minutes
 	downtimeDurationSeconds      = 180 // 3 minutes
 

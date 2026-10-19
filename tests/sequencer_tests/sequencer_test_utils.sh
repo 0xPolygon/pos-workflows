@@ -4,8 +4,8 @@
 # Requires ENCLAVE_NAME from env; curl + jq only (no cast/polycli).
 
 # Test configuration
-POST_RIO_BLOCK=${POST_RIO_BLOCK:-140} # rio at 128 + margin
-POST_RIO_TIMEOUT_SECONDS=${POST_RIO_TIMEOUT_SECONDS:-1200}
+START_BLOCK=${START_BLOCK:-16}
+START_TIMEOUT_SECONDS=${START_TIMEOUT_SECONDS:-300}
 SLEEP_INTERVAL=${SLEEP_INTERVAL:-10}
 
 # Store outage window. Must exceed the publisher's 40-block backfill depth

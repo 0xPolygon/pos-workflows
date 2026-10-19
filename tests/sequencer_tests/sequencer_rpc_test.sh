@@ -370,7 +370,7 @@ invalid_preconf_object_contract() {
 run_all_tests() {
   local failed=0
 
-  wait_for_block "$POST_RIO_BLOCK" "$POST_RIO_TIMEOUT_SECONDS"
+  wait_for_block "$START_BLOCK" "$START_TIMEOUT_SECONDS"
 
   # Shape first: it sends the sample the canonical check then reuses.
   test_preconf_receipt_shape || failed=1

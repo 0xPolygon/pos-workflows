@@ -1,8 +1,7 @@
 polygon_pos_package:
   network_params:
-    # 4s blocks: the pre-Rio bootstrap (blocks 1-127, publisher fully gated)
-    # forks under host load at faster cadences on small runners. Rio stays at
-    # the package default of block 128, so the fork lands ~8.5 minutes in.
+    # 4s blocks: the outage and recovery windows in
+    # tests/sequencer_tests/sequencer_test_utils.sh are sized for this cadence.
     el_block_interval_seconds: 4
 
   # In-enclave sequence store (requires kurtosis-pos with the sequencer
