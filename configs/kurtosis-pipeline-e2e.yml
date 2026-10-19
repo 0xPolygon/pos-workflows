@@ -78,11 +78,14 @@ polygon_pos_package:
     # producer: the node would then pull some witnesses from it and could
     # mask an incompatibility.
     #
-    # Pinned release — bump on every bor mainnet release. Pinned in
-    # configs/kurtosis-stateless-e2e.yml,
-    # .github/configs/kurtosis-stateless-e2e.yml and
-    # configs/kurtosis-pipeline-e2e.yml; keep all three in step. Releases
-    # are published on GHCR with a v prefix (Docker Hub lags behind).
+    # CI swaps this image for the newest stable bor release (plain vX.Y.Z
+    # tag with a GHCR image) through .github/actions/resolve-released-bor.
+    # The pinned tag is the fallback for local runs and for workflows that
+    # don't call the action; bump it now and then, in all three configs
+    # (configs/kurtosis-stateless-e2e.yml,
+    # .github/configs/kurtosis-stateless-e2e.yml,
+    # configs/kurtosis-pipeline-e2e.yml). Use the GHCR image: Docker Hub
+    # lags behind.
     - kind: rpc
       cl_type: heimdall-v2
       cl_image: heimdall-v2:local
