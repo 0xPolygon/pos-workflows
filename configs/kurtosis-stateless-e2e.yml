@@ -23,7 +23,7 @@ polygon_pos_package:
       el_bor_sync_with_witness: true
       count: 2
 
-    # 3 RPC nodes.
+    # 3 RPC nodes on the local build.
     - kind: rpc
       cl_type: heimdall-v2
       cl_image: heimdall-v2:local
@@ -48,5 +48,30 @@ polygon_pos_package:
       el_type: bor
       el_image: bor:local
       el_bor_produce_witness: true
+      el_bor_sync_with_witness: true
+      count: 1
+
+    # Mixed-version stateless consumer: a stateless rpc node on the bor
+    # release currently running on mainnet. Every witness producer in this
+    # devnet is bor:local, so this node can only sync if the release accepts
+    # the witnesses the new build serves. Keep it at participant index 9 —
+    # the stateless suite addresses it as RELEASED_STATELESS_RPC_INDEX. Don't
+    # add a released-image witness producer: the node would then pull some
+    # witnesses from it and could mask an incompatibility.
+    #
+    # CI swaps this image for the newest stable bor release (plain vX.Y.Z
+    # tag with a GHCR image) through .github/actions/resolve-released-bor.
+    # The pinned tag is the fallback for local runs and for workflows that
+    # don't call the action; bump it now and then, in all three configs
+    # (configs/kurtosis-stateless-e2e.yml,
+    # .github/configs/kurtosis-stateless-e2e.yml,
+    # configs/kurtosis-pipeline-e2e.yml). Use the GHCR image: Docker Hub
+    # lags behind.
+    - kind: rpc
+      cl_type: heimdall-v2
+      cl_image: heimdall-v2:local
+      el_type: bor
+      el_image: ghcr.io/0xpolygon/bor:v2.10.3
+      el_bor_produce_witness: false
       el_bor_sync_with_witness: true
       count: 1

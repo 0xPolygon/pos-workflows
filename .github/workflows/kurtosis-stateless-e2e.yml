@@ -95,6 +95,11 @@ jobs:
       - name: Copy kurtosis config
         run: cp ./pos-workflows/.github/configs/kurtosis-stateless-e2e.yml ./kurtosis-stateless-e2e.yml
 
+      - name: Use the newest bor release for the released-image node
+        uses: ./pos-workflows/.github/actions/resolve-released-bor
+        with:
+          config: ./kurtosis-stateless-e2e.yml
+
       # Load images
       - name: Download bor docker image
         uses: actions/download-artifact@v8

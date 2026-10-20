@@ -1,0 +1,61 @@
+name: resolve-released-bor
+description: Point the released-image stateless node in a Kurtosis config at the newest stable bor release
+
+inputs:
+  config:
+    description: Path to the Kurtosis args file to update in place
+    required: true
+
+outputs:
+  image:
+    description: The bor image the released-image node runs
+    value: ${{ steps.resolve.outputs.image }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the newest stable bor release
+      id: resolve
+      shell: bash
+      env:
+        CONFIG: ${{ inputs.config }}
+      run: |
+        set -euo pipefail
+        # The config pins a release as the fallback; it is the only GHCR bor
+        # image in the file.
+        pattern='ghcr\.io/0xpolygon/bor:v[0-9][0-9.]*'
+        if [ "$(grep -cE "el_image: ${pattern}\$" "$CONFIG")" != 1 ]; then
+          echo "::error::expected exactly one released bor image in $CONFIG"
+          exit 1
+        fi
+        pinned=$(grep -oE "$pattern" "$CONFIG")
+
+        # Plain vX.Y.Z tags only: some betas aren't flagged as prereleases, so
+        # GitHub's latest release can't be trusted on its own.
+        tags=$(git ls-remote --tags --refs https://github.com/0xPolygon/bor.git 'v*' |
+          awk '{sub("refs/tags/", "", $2); print $2}' |
+          grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V -r | head -3) || true
+
+        # GHCR publishes the image some minutes after the tag is pushed, so fall
+        # back to the previous release while the newest one is still building.
+        image=""
+        token=$(curl -fsS "https://ghcr.io/token?scope=repository:0xpolygon/bor:pull" | jq -r .token) || true
+        for tag in $tags; do
+          code=$(curl -s -o /dev/null -w '%{http_code}' -I \
+            -H "Authorization: Bearer ${token}" \
+            -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json" \
+            "https://ghcr.io/v2/0xpolygon/bor/manifests/${tag}") || true
+          if [ "$code" = 200 ]; then
+            image="ghcr.io/0xpolygon/bor:${tag}"
+            break
+          fi
+          echo "::notice::${tag} has no GHCR image yet, trying the previous release"
+        done
+
+        if [ -z "$image" ]; then
+          echo "::warning::could not resolve the newest bor release, keeping ${pinned}"
+          image=$pinned
+        fi
+        sed -i -E "s#el_image: ${pattern}\$#el_image: ${image}#" "$CONFIG"
+        echo "Released-image stateless node runs ${image} (config pins ${pinned})"
+        echo "image=${image}" >> "$GITHUB_OUTPUT"
