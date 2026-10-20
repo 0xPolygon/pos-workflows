@@ -728,10 +728,132 @@ test_producer_restart_recovery() {
   return 1
 }
 
+# Test 9: Released-image stateless consumer stays in sync
+#
+# Participant RELEASED_STATELESS_RPC_INDEX runs the bor release that's on
+# mainnet in stateless mode, while every witness producer in the devnet runs
+# the local build. If the local build serves witnesses the release can't
+# execute (for example a missing trie node), this node stops importing and
+# falls behind while the bor:local nodes keep going. If the local build sends
+# a message the release can't decode, the release keeps dropping its peers.
+# Uses the same ±5 block tip tolerance as the fastforward test.
+test_released_stateless_consumer_sync() {
+  local phase=$1
+  local catch_up_timeout=${2:-180}
+  local observe_seconds=${3:-60}
+  local max_lag=5
+  local max_peer_drops=3
+  local reference="${VALIDATORS[0]}"
+  local target="$SERVICE_PREFIX_VALIDATOR-$RELEASED_STATELESS_RPC_INDEX-$SERVICE_SUFFIX_RPC"
+
+  echo ""
+  echo "Test 9: Released-image stateless consumer sync ($phase)"
+  echo ""
+
+  local target_rpc
+  target_rpc=$(get_rpc_url "$target")
+  if [ -z "$target_rpc" ]; then
+    echo "❌ No RPC URL for $target; is the released-image stateless participant missing from the kurtosis config?"
+    return 1
+  fi
+  local client_version
+  client_version=$(cast rpc web3_clientVersion --rpc-url "$target_rpc" 2> /dev/null | tr -d '"')
+  echo "Target: $target ($client_version) | Reference: $reference"
+
+  local ref_block target_block lag
+  local caught_up=false
+  local start=$SECONDS
+  while [ $((SECONDS - start)) -lt "$catch_up_timeout" ]; do
+    ref_block=$(get_block_number "$reference")
+    target_block=$(get_block_number "$target")
+    if [[ "$ref_block" =~ ^[0-9]+$ ]] && [[ "$target_block" =~ ^[0-9]+$ ]] && [ "$target_block" -gt 0 ]; then
+      lag=$((ref_block - target_block))
+      echo "  $((SECONDS - start))s: Target=$target_block, Ref=$ref_block, Lag=$lag"
+      if [ "${lag#-}" -le "$max_lag" ]; then
+        caught_up=true
+        break
+      fi
+    fi
+    sleep "$SLEEP_INTERVAL"
+  done
+
+  if [ "$caught_up" = false ]; then
+    echo "❌ $target did not reach the tip (±$max_lag) within ${catch_up_timeout}s (target=$target_block, ref=$ref_block)"
+    print_released_stateless_import_errors "$target"
+    return 1
+  fi
+
+  # Stay at the tip for the observation window: a node that imports a few
+  # blocks and then hits an unexecutable witness stalls here.
+  echo "Observing $target for ${observe_seconds}s..."
+  local start_target=$target_block
+  local start_ref=$ref_block
+  local start_drops
+  start_drops=$(get_peer_drops "$target")
+  start=$SECONDS
+  while [ $((SECONDS - start)) -lt "$observe_seconds" ]; do
+    sleep "$SLEEP_INTERVAL"
+    ref_block=$(get_block_number "$reference")
+    target_block=$(get_block_number "$target")
+    echo "  $((SECONDS - start))s: Target=$target_block, Ref=$ref_block"
+  done
+
+  if ! [[ "$ref_block" =~ ^[0-9]+$ ]] || ! [[ "$target_block" =~ ^[0-9]+$ ]]; then
+    echo "❌ Could not read block numbers at the end of the observation window (target=$target_block, ref=$ref_block)"
+    return 1
+  fi
+
+  local target_progress=$((target_block - start_target))
+  local ref_progress=$((ref_block - start_ref))
+  lag=$((ref_block - target_block))
+  echo "Progress over ${observe_seconds}s: target +$target_progress, reference +$ref_progress, final lag $lag"
+  if [ "$target_progress" -le 0 ] || [ $((ref_progress - target_progress)) -gt "$max_lag" ] || [ "${lag#-}" -gt "$max_lag" ]; then
+    echo "❌ $target stalled or fell behind the tip (lag $lag > $max_lag, or progress +$target_progress vs +$ref_progress)"
+    print_released_stateless_import_errors "$target"
+    return 1
+  fi
+
+  # A protocol message the release can't decode makes it disconnect the
+  # sending peer right after the handshake. That can leave the node near the
+  # tip on a few peers, so check churn directly. A healthy node on a settled
+  # network drops none in the window; the failure mode drops ~15 a minute.
+  local end_drops
+  end_drops=$(get_peer_drops "$target")
+  if [ -z "$start_drops" ] || [ -z "$end_drops" ]; then
+    echo "❌ Could not read p2p_peers_drops from $target's metrics"
+    return 1
+  fi
+  local drops=$((end_drops - start_drops))
+  echo "Peer drops over ${observe_seconds}s: $drops"
+  if [ "$drops" -gt "$max_peer_drops" ]; then
+    echo "❌ $target dropped $drops peers in ${observe_seconds}s (> $max_peer_drops)"
+    print_released_stateless_import_errors "$target"
+    return 1
+  fi
+
+  local target_hash ref_hash
+  target_hash=$(get_block_hash "$target" "$target_block")
+  ref_hash=$(get_block_hash "$reference" "$target_block")
+  if [ -z "$target_hash" ] || [ "$target_hash" != "$ref_hash" ]; then
+    echo "❌ Hash mismatch at block $target_block: target=$target_hash reference=$ref_hash"
+    return 1
+  fi
+
+  echo "✅ Released-image stateless consumer in sync ($phase): block $target_block, hash $target_hash"
+}
+
+print_released_stateless_import_errors() {
+  local service=$1
+  echo "Recent import errors on $service:"
+  kurtosis service logs "$ENCLAVE_NAME" "$service" --all 2>&1 |
+    grep -iE "missing trie node|witness|bad block|stateless" | grep -iE "err|fail|invalid|missing" | tail -20 || true
+}
+
 # Run all tests
 #
 # Order rationale:
-#   - Baseline correctness (1) first so we fail fast on anything fundamental.
+#   - Baseline correctness (1) first so we fail fast on anything fundamental,
+#     then the released-image stateless consumer (9) on the pristine network.
 #   - Fastforward (7) before disruptive tests so it runs on a pristine network.
 #     Tests 3–5 stress heimdall milestone consensus (span rotations, network latency)
 #     and can leave the cluster unable to produce milestones for long enough that bor's
@@ -739,10 +861,14 @@ test_producer_restart_recovery() {
 #     avoids that class of flake.
 #   - Disruptive tests last, ordered roughly by escalating severity (3 → 5 → 4) so a
 #     lighter disruption runs before the 30s-extreme-latency + 5-minute recovery of 4.
+#   - The released-image consumer (9) runs again after the load tests and the
+#     bridge test, so it has replayed witnesses for contract-heavy blocks and
+#     state-sync system calls.
 #   - Producer restart (8) runs last because its stop+start cycle briefly
 #     disrupts heimdall milestone consensus, which would skew the
 #     settlement-latency thresholds of any test downstream.
 test_block_hash_consensus || exit 1
+test_released_stateless_consumer_sync "pristine network" || exit 1
 test_fastforward_sync || exit 1
 test_milestone_settlement_latency_resilience || exit 1
 test_load_with_rotation || exit 1
@@ -751,6 +877,7 @@ test_extreme_network_latency_recovery || exit 1
 # Run bridge test
 setup_pos_env
 test_bridge_l1_to_l2 || exit 1
+test_released_stateless_consumer_sync "after load and bridge" || exit 1
 
 # Producer restart recovery runs after bridge so it doesn't disrupt
 # heimdall milestone consensus for any other test.

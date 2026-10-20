@@ -4,9 +4,10 @@
 # configs/kurtosis-pipeline-e2e.yml.
 #
 # Runs after the stateless suite has passed, so lockstep and hash consensus
-# for participants 1-8 are already proven; this script checks the pipeline
+# for participants 1-8 are already proven (and the released-image stateless
+# consumer, participant 9, has kept up); this script checks the pipeline
 # metrics per node role and brings the released-image baseline (participant
-# 9, outside the stateless suite's service lists) into the hash-consensus
+# 10, outside the stateless suite's service lists) into the hash-consensus
 # check.
 set -euo pipefail
 
@@ -33,7 +34,7 @@ STATELESS_VALIDATORS=(
 PIPELINED_PLAIN_RPC="$SERVICE_PREFIX_VALIDATOR-6-$SERVICE_SUFFIX_RPC"
 PIPELINED_WITNESS_RPC="$SERVICE_PREFIX_VALIDATOR-7-$SERVICE_SUFFIX_RPC"
 STATELESS_RPC="$SERVICE_PREFIX_VALIDATOR-8-$SERVICE_SUFFIX_RPC"
-BASELINE_NODE="$SERVICE_PREFIX_VALIDATOR-9-$SERVICE_SUFFIX_RPC"
+BASELINE_NODE="$SERVICE_PREFIX_VALIDATOR-10-$SERVICE_SUFFIX_RPC"
 REFERENCE_NODE="$SERVICE_PREFIX_VALIDATOR-1-$SERVICE_SUFFIX_VALIDATOR"
 
 failures=0
