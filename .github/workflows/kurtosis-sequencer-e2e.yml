@@ -77,7 +77,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: 0xPolygon/heimdall-v2
-          ref: kamuikatsurgi/rio-at-genesis-local
+          ref: develop
 
       - name: Build heimdall-v2 docker image
         run: docker build -t heimdall-v2:local --file Dockerfile .
