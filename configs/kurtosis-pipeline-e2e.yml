@@ -95,17 +95,21 @@ polygon_pos_package:
       el_bor_sync_with_witness: true
       count: 1
 
-    # Released-image baseline: a full-sync rpc node on the latest published
-    # bor release. Its BurntSushi TOML parser ignores the injected [pipeline]
-    # section, making it a genuine pipeline-off cross-check: it re-executes
-    # and must accept every block the pipelined nodes produce. An rpc node
-    # rather than a validator so it doesn't perturb the 5-validator producer
-    # rotation the stateless suite's timing assertions are tuned for.
+    # Released-image baseline: a full-sync rpc node on a published bor
+    # release that predates the [pipeline] config section (added in v2.10.2).
+    # Its BurntSushi TOML parser ignores the injected section, making it a
+    # genuine pipeline-off cross-check: it re-executes and must accept every
+    # block the pipelined nodes produce. Don't bump it to a release that
+    # parses [pipeline]: it would then run pipelined import too. The trailing
+    # comment keeps resolve-released-bor from treating this line as the
+    # released stateless node above. An rpc node rather than a validator so
+    # it doesn't perturb the 5-validator producer rotation the stateless
+    # suite's timing assertions are tuned for.
     - kind: rpc
       cl_type: heimdall-v2
       cl_image: heimdall-v2:local
       el_type: bor
-      el_image: 0xpolygon/bor:latest
+      el_image: ghcr.io/0xpolygon/bor:v2.10.1 # pipeline-off baseline
       el_bor_produce_witness: false
       el_bor_sync_with_witness: false
       count: 1
