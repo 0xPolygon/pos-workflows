@@ -71,7 +71,7 @@ polygon_pos_package:
       cl_type: heimdall-v2
       cl_image: heimdall-v2:local
       el_type: bor
-      el_image: ghcr.io/0xpolygon/bor:v2.10.3
+      el_image: ghcr.io/0xpolygon/bor:v2.11.0
       el_bor_produce_witness: false
       el_bor_sync_with_witness: true
       count: 1

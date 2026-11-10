@@ -316,9 +316,9 @@ test_large_calldata_does_not_wedge_the_store() {
 run_all_chaos() {
   local failed=0
 
-  # Reach the fork first: before Rio the publisher is gated off entirely, so a
-  # store fault would prove nothing.
-  wait_for_block "$POST_RIO_BLOCK" "$POST_RIO_TIMEOUT_SECONDS"
+  # Let the publishers stream a few blocks first so a store fault has
+  # something to disrupt.
+  wait_for_block "$START_BLOCK" "$START_TIMEOUT_SECONDS"
 
   # Load and the head sampler run across every episode, so windows carry
   # transactions and a rewritten height anywhere in the run is caught.

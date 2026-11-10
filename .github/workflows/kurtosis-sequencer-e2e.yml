@@ -1,11 +1,10 @@
 name: Kurtosis Sequencer E2E Tests
 
-# Exercises the sequence-store publisher end to end: publishers live after
-# Rio, stall-free production through a store outage, and the recovery
+# Exercises the sequence-store publisher end to end: live publishers,
+# stall-free production through a store outage, and the recovery
 # backfill floored at milestone finality.
 #
-# Unlike the sibling workflows this one is path-scoped: it builds bor from
-# the sequencing feature branch (not develop), so it should gate only
+# Unlike the sibling workflows this one is path-scoped: it gates only
 # changes to its own suite rather than every PR in this repo.
 on:
   push:
@@ -48,13 +47,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout bor
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: 0xPolygon/bor
-          # The sequencer publisher is still on its PR branch
-          # (0xPolygon/bor#2355): move this to `sequencing` when that PR
-          # merges, then to `develop` when sequencing lands there.
-          ref: cffls/sequence-publisher
+          ref: develop
 
       - name: Build bor docker image
         run: docker build -t bor:local --file Dockerfile .
@@ -63,7 +59,7 @@ jobs:
         run: docker save bor:local | gzip > bor-image.tar.gz
 
       - name: Upload bor docker image
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bor-image
           path: bor-image.tar.gz
@@ -74,7 +70,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout heimdall-v2
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: 0xPolygon/heimdall-v2
           ref: develop
@@ -86,7 +82,7 @@ jobs:
         run: docker save heimdall-v2:local | gzip > heimdall-v2-image.tar.gz
 
       - name: Upload heimdall-v2 docker image
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: heimdall-v2-image
           path: heimdall-v2-image.tar.gz
@@ -97,8 +93,7 @@ jobs:
       - build-bor
       - build-heimdall-v2
     runs-on: ubuntu-latest
-    # Three suites share one enclave: functional (~25m, most of it reaching
-    # Rio), rpc (~5m), chaos (~10m).
+    # Three suites share one enclave: functional, rpc (~5m), chaos (~10m).
     timeout-minutes: 75
     # packages: read lets the default GITHUB_TOKEN pull the sequence-store
     # ghcr package once this repo is granted access on it.
@@ -112,10 +107,10 @@ jobs:
       # sequence-store launcher (it supersedes the 0cdede0 main pin) and
       # ships the setup-action fix bor's own kurtosis legs already run with.
       - name: Checkout kurtosis-pos
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: 0xPolygon/kurtosis-pos
-          ref: v1.4.3
+          ref: kamuikatsurgi/rio-at-genesis
 
       - name: Pre kurtosis run
         uses: ./.github/actions/kurtosis/setup
@@ -123,7 +118,7 @@ jobs:
           main_branch: main
 
       - name: Checkout pos-workflows
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           path: pos-workflows
@@ -133,12 +128,12 @@ jobs:
 
       # Load images
       - name: Download bor docker image
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: bor-image
 
       - name: Download heimdall-v2 docker image
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: heimdall-v2-image
 
