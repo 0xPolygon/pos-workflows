@@ -48,7 +48,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout bor
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: 0xPolygon/bor
           # The sequencer publisher is still on its PR branch
@@ -63,7 +63,7 @@ jobs:
         run: docker save bor:local | gzip > bor-image.tar.gz
 
       - name: Upload bor docker image
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bor-image
           path: bor-image.tar.gz
@@ -74,7 +74,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout heimdall-v2
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: 0xPolygon/heimdall-v2
           ref: develop
@@ -86,7 +86,7 @@ jobs:
         run: docker save heimdall-v2:local | gzip > heimdall-v2-image.tar.gz
 
       - name: Upload heimdall-v2 docker image
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: heimdall-v2-image
           path: heimdall-v2-image.tar.gz
@@ -111,7 +111,7 @@ jobs:
       # sequence-store launcher (it supersedes the 0cdede0 main pin) and
       # ships the setup-action fix bor's own kurtosis legs already run with.
       - name: Checkout kurtosis-pos
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: 0xPolygon/kurtosis-pos
           ref: kamuikatsurgi/rio-at-genesis
@@ -122,7 +122,7 @@ jobs:
           main_branch: main
 
       - name: Checkout pos-workflows
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           path: pos-workflows
@@ -132,12 +132,12 @@ jobs:
 
       # Load images
       - name: Download bor docker image
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: bor-image
 
       - name: Download heimdall-v2 docker image
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: heimdall-v2-image
 
