@@ -4,7 +4,7 @@ set -e
 # Source utility functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/kurtosis_test_utils.sh"
-source "$SCRIPT_DIR/../bridge_test_utils.sh"
+source "$SCRIPT_DIR/../state_sync_test_utils.sh"
 
 echo "Starting kurtosis stateless sync tests..."
 
@@ -861,9 +861,8 @@ print_released_stateless_import_errors() {
 #     avoids that class of flake.
 #   - Disruptive tests last, ordered roughly by escalating severity (3 → 5 → 4) so a
 #     lighter disruption runs before the 30s-extreme-latency + 5-minute recovery of 4.
-#   - The released-image consumer (9) runs again after the load tests and the
-#     bridge test, so it has replayed witnesses for contract-heavy blocks and
-#     state-sync system calls.
+#   - The released-image consumer (9) runs again after the load tests, so it has
+#     replayed witnesses for contract-heavy blocks.
 #   - Producer restart (8) runs last because its stop+start cycle briefly
 #     disrupts heimdall milestone consensus, which would skew the
 #     settlement-latency thresholds of any test downstream.
@@ -874,12 +873,12 @@ test_milestone_settlement_latency_resilience || exit 1
 test_load_with_rotation || exit 1
 test_extreme_network_latency_recovery || exit 1
 
-# Run bridge test
+# Run state sync test
 setup_pos_env
-test_bridge_l1_to_l2 || exit 1
-test_released_stateless_consumer_sync "after load and bridge" || exit 1
+test_state_syncs || exit 1
+test_released_stateless_consumer_sync "after load" || exit 1
 
-# Producer restart recovery runs after bridge so it doesn't disrupt
+# Producer restart recovery runs after the state sync test so it doesn't disrupt
 # heimdall milestone consensus for any other test.
 test_producer_restart_recovery || exit 1
 

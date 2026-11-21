@@ -22,8 +22,7 @@ runs:
       run: |
         set -euo pipefail
         # The config pins a release as the fallback: the one GHCR bor image
-        # on a line of its own. Other pinned images (the pipeline leg's
-        # baseline) carry a trailing comment and are left alone.
+        # on a line of its own.
         pattern='ghcr\.io/0xpolygon/bor:v[0-9][0-9.]*'
         if [ "$(grep -cE "el_image: ${pattern}\$" "$CONFIG")" != 1 ]; then
           echo "::error::expected exactly one released bor image in $CONFIG"

@@ -2,7 +2,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/bridge_test_utils.sh"
+source "$SCRIPT_DIR/state_sync_test_utils.sh"
 source "$SCRIPT_DIR/evm_test_helpers.sh"
 
 ENCLAVE_NAME=${ENCLAVE_NAME:-"kurtosis-e2e"}
@@ -301,11 +301,11 @@ main() {
   echo ""
 
   setup_pos_env
-  if ! test_bridge_l1_to_l2; then
-    echo "❌ Plasma bridge test (POL + ERC20 + ERC721) failed"
+  if ! test_state_syncs; then
+    echo "❌ State sync test failed"
     exit 1
   fi
-  echo "✅ Plasma bridge test (POL + ERC20 + ERC721) passed"
+  echo "✅ State sync test passed"
   echo ""
 
   if ! test_checkpoints; then
