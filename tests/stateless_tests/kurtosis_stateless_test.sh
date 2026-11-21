@@ -874,12 +874,12 @@ test_milestone_settlement_latency_resilience || exit 1
 test_load_with_rotation || exit 1
 test_extreme_network_latency_recovery || exit 1
 
-# Run bridge test
+# Run state sync test
 setup_pos_env
-test_bridge_l1_to_l2 || exit 1
-test_released_stateless_consumer_sync "after load and bridge" || exit 1
+test_state_syncs || exit 1
+test_released_stateless_consumer_sync "after load and state syncs" || exit 1
 
-# Producer restart recovery runs after bridge so it doesn't disrupt
+# Producer restart recovery runs after the state sync test so it doesn't disrupt
 # heimdall milestone consensus for any other test.
 test_producer_restart_recovery || exit 1
 
