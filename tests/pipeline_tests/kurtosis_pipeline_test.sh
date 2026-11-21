@@ -6,7 +6,7 @@
 # Runs after the stateless suite has passed, so lockstep and hash consensus
 # for participants 1-8 are already proven (and the released-image stateless
 # consumer, participant 9, has kept up); this script checks the pipeline
-# metrics per node role and brings the released-image baseline (participant
+# metrics per node role and brings the pipeline-off baseline (participant
 # 10, outside the stateless suite's service lists) into the hash-consensus
 # check.
 set -euo pipefail
@@ -99,7 +99,7 @@ diff=$((${witness%.*} - ${src%.*}))
 [ "${diff#-}" -le 2 ] || fail "$PIPELINED_WITNESS_RPC: witness/src divergence ($witness vs $src) — witnesses not coming from the pipelined SRC path"
 [ "${src%.*}" -gt 0 ] || fail "$PIPELINED_WITNESS_RPC: pipeline not active"
 
-echo "=== Released-image baseline consensus check ==="
+echo "=== Pipeline-off baseline consensus check ==="
 ref_hash=$(get_block_hash "$REFERENCE_NODE" "$TARGET_BLOCK")
 base_hash=$(get_block_hash "$BASELINE_NODE" "$TARGET_BLOCK")
 echo "block $TARGET_BLOCK: reference=$ref_hash baseline=$base_hash"
