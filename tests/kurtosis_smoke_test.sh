@@ -2,7 +2,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/bridge_test_utils.sh"
+source "$SCRIPT_DIR/state_sync_test_utils.sh"
 source "$SCRIPT_DIR/evm_test_helpers.sh"
 
 ENCLAVE_NAME=${ENCLAVE_NAME:-"kurtosis-e2e"}

@@ -1,8 +1,8 @@
 #!/bin/bash
 # State sync check: Heimdall and Bor have both processed at least one state sync.
 
-BRIDGE_UTILS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$BRIDGE_UTILS_DIR/pos_test_utils.sh"
+STATE_SYNC_UTILS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$STATE_SYNC_UTILS_DIR/pos_test_utils.sh"
 
 # Verify state syncs are flowing: Heimdall has recorded at least one event record and
 # Bor has committed at least one state sync.

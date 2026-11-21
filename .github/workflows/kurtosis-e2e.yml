@@ -314,9 +314,8 @@ jobs:
       id-token: write
       packages: read
     steps:
-      # Set up kurtosis. v1.4.2 is the first release tag that carries the
-      # sequence-store launcher (it supersedes the 0cdede0 main pin) and
-      # ships the setup-action fix bor's own kurtosis legs already run with.
+      # Set up kurtosis. The sequence-store launcher ships in kurtosis-pos
+      # from v1.4.2 on.
       - name: Checkout kurtosis-pos
         uses: actions/checkout@v7
         with:
