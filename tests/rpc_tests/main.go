@@ -62,6 +62,7 @@ type ResponseMap struct {
 	stateSyncBlockNumber                   *big.Int
 	stateSyncBlockHash                     common.Hash
 	stateSyncTxIndex                       int
+	stateSyncCumulativeGasUsed             string
 	stateSyncExpectedBlockTransactionCount int
 	expectedGasToCreateTransaction         *big.Int
 	expectedValueToStoreInContract         *big.Int
@@ -767,7 +768,7 @@ func validateBlockSigners(bs *bor.BlockSigners) error {
 	return nil
 }
 
-func validateStateSyncTxReceipt(receipt map[string]interface{}) error {
+func validateStateSyncTxReceipt(receipt map[string]interface{}, wantCumulativeGasUsed string) error {
 	// Validate from and to addresses are 0x0
 	zeroAddress := "0x0000000000000000000000000000000000000000"
 
@@ -781,9 +782,17 @@ func validateStateSyncTxReceipt(receipt map[string]interface{}) error {
 		return fmt.Errorf("invalid 'to' address: expected %s, got %s", zeroAddress, to)
 	}
 
-	// Validate gas values are 0
-	if receipt["cumulativeGasUsed"] != "0x0" {
-		return fmt.Errorf("cumulativeGasUsed must be 0x0")
+	// The state sync tx uses no gas itself, so its cumulative gas is that of the
+	// receipt before it in the block (0x0 when it is the only one).
+	cumulativeGasUsed, ok := receipt["cumulativeGasUsed"].(string)
+	if !ok {
+		return fmt.Errorf("invalid cumulativeGasUsed")
+	}
+	if _, err := hexutil.DecodeUint64(cumulativeGasUsed); err != nil {
+		return fmt.Errorf("invalid cumulativeGasUsed %q: %v", cumulativeGasUsed, err)
+	}
+	if wantCumulativeGasUsed != "" && cumulativeGasUsed != wantCumulativeGasUsed {
+		return fmt.Errorf("cumulativeGasUsed must match the previous receipt: got %s, want %s", cumulativeGasUsed, wantCumulativeGasUsed)
 	}
 
 	if receipt["effectiveGasPrice"] != "0x0" {
@@ -853,7 +862,19 @@ func handleGetStateSyncBlockReceipts(rm *ResponseMap, method string, txReceipts 
 	// state sync tx must always be the last one
 	stateSyncTx := (*txReceipts)[len(*txReceipts)-1]
 
-	err := validateStateSyncTxReceipt((*txReceipts)[len(*txReceipts)-1])
+	wantCumulativeGasUsed := "0x0"
+	if n := len(*txReceipts); n > 1 {
+		prev, ok := (*txReceipts)[n-2]["cumulativeGasUsed"].(string)
+		if !ok {
+			return fmt.Errorf("receipt before the state sync tx has no cumulativeGasUsed")
+		}
+		wantCumulativeGasUsed = prev
+	}
+	if rm.stateSyncCumulativeGasUsed != "" && rm.stateSyncCumulativeGasUsed != wantCumulativeGasUsed {
+		return fmt.Errorf("state sync tx cumulativeGasUsed differs between methods: eth_getTransactionReceipt %s | %s %s", rm.stateSyncCumulativeGasUsed, method, wantCumulativeGasUsed)
+	}
+
+	err := validateStateSyncTxReceipt(stateSyncTx, wantCumulativeGasUsed)
 	if err != nil {
 		return fmt.Errorf("last receipt on block must be state sync tx: %s", err)
 	}
@@ -1534,10 +1555,11 @@ var testCases = []TestCase{
 			}
 			rm.stateSyncTxIndex = int(txIndex)
 
-			err = validateStateSyncTxReceipt(*stateSyncTxReceipt)
+			err = validateStateSyncTxReceipt(*stateSyncTxReceipt, "")
 			if err != nil {
 				return err
 			}
+			rm.stateSyncCumulativeGasUsed = (*stateSyncTxReceipt)["cumulativeGasUsed"].(string)
 
 			return nil
 		},

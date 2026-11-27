@@ -4,7 +4,7 @@ set -e
 # Source utility functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/kurtosis_test_utils.sh"
-source "$SCRIPT_DIR/../bridge_test_utils.sh"
+source "$SCRIPT_DIR/../state_sync_test_utils.sh"
 
 echo "Starting kurtosis stateless sync tests..."
 
@@ -110,89 +110,6 @@ test_block_hash_consensus() {
         echo "✅ All nodes have reached block $TARGET_BLOCK with the same hash: $reference_hash"
         break
       fi
-    fi
-
-    sleep $SLEEP_INTERVAL
-  done
-}
-
-# Test 2: Check nodes continue syncing after block TARGET_BLOCK_HF (veblop HF)
-test_post_veblop_hf_behavior() {
-  echo ""
-  echo "Test 2: Checking post-veblop HF behavior (after block $TARGET_BLOCK_HF)"
-  echo ""
-  echo "Waiting for block $TARGET_BLOCK_POST_HF to ensure we're past veblop HF..."
-
-  while true; do
-    current_time=$SECONDS
-    elapsed=$((current_time - start_time))
-
-    # Timeout check
-    if [ $elapsed -gt $TEST_TIMEOUT_SECONDS ]; then
-      echo "Timeout waiting for post-HF block $TARGET_BLOCK_POST_HF (after ${TEST_TIMEOUT_SECONDS}s)"
-      return 1
-    fi
-
-    # Check all services (should continue syncing after HF)
-    max_block=0
-    for service in "${VALIDATORS[@]}" "${RPC_SERVICES[@]}"; do
-      block_num=$(get_block_number $service)
-      if [[ "$block_num" =~ ^[0-9]+$ ]] && [ $block_num -gt $max_block ]; then
-        max_block=$block_num
-      fi
-    done
-
-    echo "Current max block: $max_block"
-
-    if [ $max_block -ge $TARGET_BLOCK_POST_HF ]; then
-      echo "✅ All nodes continued syncing past veblop HF"
-
-      # Check block hash consensus for all services at block TARGET_BLOCK_POST_HF
-      echo "Checking block hash consensus for all services at block $TARGET_BLOCK_POST_HF..."
-
-      ALL_SERVICES=("${VALIDATORS[@]}" "${RPC_SERVICES[@]}")
-
-      # Get block hash for block TARGET_BLOCK_POST_HF from all services
-      block_hashes=()
-      reference_hash=""
-      hash_mismatch=false
-
-      for service in "${ALL_SERVICES[@]}"; do
-        block_hash=$(get_block_hash $service $TARGET_BLOCK_POST_HF)
-        if [ -n "$block_hash" ]; then
-          block_hashes+=("$service:$block_hash")
-
-          # Set reference hash from first service
-          if [ -z "$reference_hash" ]; then
-            reference_hash=$block_hash
-            echo "Reference hash from $service: $reference_hash"
-          else
-            # Compare with reference hash
-            if [ "$block_hash" != "$reference_hash" ]; then
-              echo "❌ Hash mismatch! $service has hash: $block_hash (expected: $reference_hash)"
-              hash_mismatch=true
-            else
-              echo "✅ $service has matching hash: $block_hash"
-            fi
-          fi
-        else
-          echo "❌ Failed to get hash for block $TARGET_BLOCK_POST_HF from $service"
-          hash_mismatch=true
-        fi
-      done
-
-      if [ "$hash_mismatch" = true ]; then
-        echo "❌ Block hash verification failed for block $TARGET_BLOCK_POST_HF"
-        echo "All hashes collected:"
-        for hash_entry in "${block_hashes[@]}"; do
-          echo "  $hash_entry"
-        done
-        return 1
-      else
-        echo "✅ All services have the same hash for block $TARGET_BLOCK_POST_HF: $reference_hash"
-      fi
-
-      break
     fi
 
     sleep $SLEEP_INTERVAL
@@ -935,7 +852,7 @@ print_released_stateless_import_errors() {
 # Run all tests
 #
 # Order rationale:
-#   - Baseline correctness (1, 2) first so we fail fast on anything fundamental,
+#   - Baseline correctness (1) first so we fail fast on anything fundamental,
 #     then the released-image stateless consumer (9) on the pristine network.
 #   - Fastforward (7) before disruptive tests so it runs on a pristine network.
 #     Tests 3–5 stress heimdall milestone consensus (span rotations, network latency)
@@ -944,26 +861,24 @@ print_released_stateless_import_errors() {
 #     avoids that class of flake.
 #   - Disruptive tests last, ordered roughly by escalating severity (3 → 5 → 4) so a
 #     lighter disruption runs before the 30s-extreme-latency + 5-minute recovery of 4.
-#   - The released-image consumer (9) runs again after the load tests and the
-#     bridge test, so it has replayed witnesses for contract-heavy blocks and
-#     state-sync system calls.
+#   - The released-image consumer (9) runs again after the load tests, so it has
+#     replayed witnesses for contract-heavy blocks.
 #   - Producer restart (8) runs last because its stop+start cycle briefly
 #     disrupts heimdall milestone consensus, which would skew the
 #     settlement-latency thresholds of any test downstream.
 test_block_hash_consensus || exit 1
-test_post_veblop_hf_behavior || exit 1
-test_released_stateless_consumer_sync "after veblop HF" || exit 1
+test_released_stateless_consumer_sync "pristine network" || exit 1
 test_fastforward_sync || exit 1
 test_milestone_settlement_latency_resilience || exit 1
 test_load_with_rotation || exit 1
 test_extreme_network_latency_recovery || exit 1
 
-# Run bridge test
+# Run state sync test
 setup_pos_env
-test_bridge_l1_to_l2 || exit 1
-test_released_stateless_consumer_sync "after load and bridge" || exit 1
+test_state_syncs || exit 1
+test_released_stateless_consumer_sync "after load" || exit 1
 
-# Producer restart recovery runs after bridge so it doesn't disrupt
+# Producer restart recovery runs after the state sync test so it doesn't disrupt
 # heimdall milestone consensus for any other test.
 test_producer_restart_recovery || exit 1
 

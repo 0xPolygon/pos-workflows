@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Sequence-store & publisher e2e: publishers come live after Rio, block
+# Sequence-store & publisher e2e: publishers come live from genesis, block
 # production survives a store outage untouched, and recovery backfills
 # floored at milestone finality (jumping the finalized gap) instead of
 # re-publishing the whole outage window.
@@ -21,14 +21,14 @@ setup_service_lists
 # Never leave a background load generator running if the suite exits early.
 trap stop_load EXIT
 
-# Test 1: publishers are live once Rio activates.
+# Test 1: publishers are live.
 # publish_state: 0 off, 1 live, 2 degraded, 3 resyncing, 4 failed, 5 contending.
 test_publishers_live() {
   echo ""
-  echo "Test 1: All validators publish to the store once Rio activates"
+  echo "Test 1: All validators publish to the store"
   echo ""
 
-  wait_for_block "$POST_RIO_BLOCK" "$POST_RIO_TIMEOUT_SECONDS"
+  wait_for_block "$START_BLOCK" "$START_TIMEOUT_SECONDS"
 
   local live
   live=$(count_validators_with_metric "sequencer_publish_state" "1")

@@ -2,7 +2,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/bridge_test_utils.sh"
+source "$SCRIPT_DIR/state_sync_test_utils.sh"
 source "$SCRIPT_DIR/evm_test_helpers.sh"
 
 ENCLAVE_NAME=${ENCLAVE_NAME:-"kurtosis-e2e"}
@@ -44,22 +44,6 @@ get_block_hash() {
     return
   fi
   cast block "$block_number" --rpc-url "$rpc_url" --json 2> /dev/null | jq -r '(.data? // .).hash // empty'
-}
-
-wait_for_block() {
-  local target_block=$1
-  local service_name="${VALIDATORS[0]}"
-  echo "Waiting for block $target_block..."
-
-  while true; do
-    current_block=$(get_block_number "$service_name")
-    if [[ "$current_block" =~ ^[0-9]+$ ]] && [ "$current_block" -ge "$target_block" ]; then
-      echo "Reached block $current_block (target: $target_block)"
-      return 0
-    fi
-    echo "Current block: $current_block, waiting for $target_block..."
-    sleep 1
-  done
 }
 
 test_checkpoints() {
@@ -298,9 +282,6 @@ main() {
   echo "Service: $HEIMDALL_SERVICE_NAME"
   echo ""
 
-  wait_for_block 128
-  echo ""
-
   # Setup producer planned downtime early
   "$SCRIPT_DIR/producer_planned_downtime/setup.sh"
   echo ""
@@ -320,11 +301,11 @@ main() {
   echo ""
 
   setup_pos_env
-  if ! test_bridge_l1_to_l2; then
-    echo "❌ Plasma bridge test (POL + ERC20 + ERC721) failed"
+  if ! test_state_syncs; then
+    echo "❌ State sync test failed"
     exit 1
   fi
-  echo "✅ Plasma bridge test (POL + ERC20 + ERC721) passed"
+  echo "✅ State sync test passed"
   echo ""
 
   if ! test_checkpoints; then

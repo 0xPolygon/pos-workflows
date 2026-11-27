@@ -29,26 +29,14 @@ setup_pos_env() {
   echo "L2_RPC_URL=${L2_RPC_URL}"
   echo "L2_CL_API_URL=${L2_CL_API_URL}"
 
-  if [[ -z "${L1_GOVERNANCE_PROXY_ADDRESS:-}" ]] ||
-    [[ -z "${L1_DEPOSIT_MANAGER_PROXY_ADDRESS:-}" ]] ||
-    [[ -z "${L1_STAKE_MANAGER_PROXY_ADDRESS:-}" ]] ||
+  if [[ -z "${L1_STAKE_MANAGER_PROXY_ADDRESS:-}" ]] ||
     [[ -z "${L1_STAKING_INFO_ADDRESS:-}" ]] ||
     [[ -z "${L1_POL_TOKEN_ADDRESS:-}" ]] ||
-    [[ -z "${L1_ERC20_TOKEN_ADDRESS:-}" ]] ||
-    [[ -z "${L1_ERC721_TOKEN_ADDRESS:-}" ]] ||
-    [[ -z "${L2_STATE_RECEIVER_ADDRESS:-}" ]] ||
-    [[ -z "${L2_ERC20_TOKEN_ADDRESS:-}" ]] ||
-    [[ -z "${L2_ERC721_TOKEN_ADDRESS:-}" ]]; then
+    [[ -z "${L2_STATE_RECEIVER_ADDRESS:-}" ]]; then
     local pos_contract_addresses
     pos_contract_addresses=$(kurtosis files inspect "${ENCLAVE_NAME}" pos-contract-addresses contractAddresses.json | jq)
 
     # L1 contract addresses.
-    export L1_GOVERNANCE_PROXY_ADDRESS=${L1_GOVERNANCE_PROXY_ADDRESS:-$(echo "${pos_contract_addresses}" | jq --raw-output '.root.GovernanceProxy')}
-    echo "L1_GOVERNANCE_PROXY_ADDRESS=${L1_GOVERNANCE_PROXY_ADDRESS}"
-
-    export L1_DEPOSIT_MANAGER_PROXY_ADDRESS=${L1_DEPOSIT_MANAGER_PROXY_ADDRESS:-$(echo "${pos_contract_addresses}" | jq --raw-output '.root.DepositManagerProxy')}
-    echo "L1_DEPOSIT_MANAGER_PROXY_ADDRESS=${L1_DEPOSIT_MANAGER_PROXY_ADDRESS}"
-
     export L1_STAKE_MANAGER_PROXY_ADDRESS=${L1_STAKE_MANAGER_PROXY_ADDRESS:-$(echo "${pos_contract_addresses}" | jq --raw-output '.root.StakeManagerProxy')}
     echo "L1_STAKE_MANAGER_PROXY_ADDRESS=${L1_STAKE_MANAGER_PROXY_ADDRESS}"
 
@@ -58,21 +46,9 @@ setup_pos_env() {
     export L1_POL_TOKEN_ADDRESS=${L1_POL_TOKEN_ADDRESS:-$(echo "${pos_contract_addresses}" | jq --raw-output '.root.tokens.PolToken')}
     echo "L1_POL_TOKEN_ADDRESS=${L1_POL_TOKEN_ADDRESS}"
 
-    export L1_ERC20_TOKEN_ADDRESS=${L1_ERC20_TOKEN_ADDRESS:-$(echo "${pos_contract_addresses}" | jq --raw-output '.root.tokens.TestToken')}
-    echo "L1_ERC20_TOKEN_ADDRESS=${L1_ERC20_TOKEN_ADDRESS}"
-
-    export L1_ERC721_TOKEN_ADDRESS=${L1_ERC721_TOKEN_ADDRESS:-$(echo "${pos_contract_addresses}" | jq --raw-output '.root.tokens.RootERC721')}
-    echo "L1_ERC721_TOKEN_ADDRESS=${L1_ERC721_TOKEN_ADDRESS}"
-
     # L2 contract addresses.
     export L2_STATE_RECEIVER_ADDRESS=${L2_STATE_RECEIVER_ADDRESS:-$(kurtosis files inspect "${ENCLAVE_NAME}" l2-el-genesis genesis.json | jq --raw-output '.config.bor.stateReceiverContract')}
     echo "L2_STATE_RECEIVER_ADDRESS=${L2_STATE_RECEIVER_ADDRESS}"
-
-    export L2_ERC20_TOKEN_ADDRESS=${L2_ERC20_TOKEN_ADDRESS:-$(echo "${pos_contract_addresses}" | jq --raw-output '.child.tokens.TestToken')}
-    echo "L2_ERC20_TOKEN_ADDRESS=${L2_ERC20_TOKEN_ADDRESS}"
-
-    export L2_ERC721_TOKEN_ADDRESS=${L2_ERC721_TOKEN_ADDRESS:-$(echo "${pos_contract_addresses}" | jq --raw-output '.child.tokens.RootERC721')}
-    echo "L2_ERC721_TOKEN_ADDRESS=${L2_ERC721_TOKEN_ADDRESS}"
   fi
 }
 
@@ -116,27 +92,6 @@ _assert_cmd_eventually_equal() {
     result=$(eval "${command}")
     echo "[$(date '+%H:%M:%S')] result=${result} target=${target}"
     if [[ "${result}" == "${target}" ]]; then
-      return 0
-    fi
-    sleep "${interval}"
-  done
-}
-
-# Poll until token balance >= target.
-_assert_token_balance_gte() {
-  local contract="$1" address="$2" target="$3" rpc_url="$4"
-  local timeout="${5:-$POS_TEST_TIMEOUT}" interval="${6:-$POS_TEST_INTERVAL}"
-
-  local end_time=$(($(date +%s) + timeout))
-  while true; do
-    if [ "$(date +%s)" -ge "$end_time" ]; then
-      echo "Timeout reached waiting for balance >= ${target}"
-      return 1
-    fi
-    local balance
-    balance=$(cast call --json --rpc-url "${rpc_url}" "${contract}" "balanceOf(address)(uint)" "${address}" | jq --raw-output '(.data? // .)[0]')
-    echo "[$(date '+%H:%M:%S')] balance=${balance} target=${target}"
-    if [ "${balance}" -ge "${target}" ]; then
       return 0
     fi
     sleep "${interval}"
