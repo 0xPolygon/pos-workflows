@@ -87,7 +87,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: 0xPolygon/kurtosis-pos
-          ref: kamuikatsurgi/rio-at-genesis
+          ref: v1.5.0
 
       - name: Pre kurtosis run
         uses: ./.github/actions/kurtosis/setup
@@ -216,7 +216,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: 0xPolygon/kurtosis-pos
-          ref: kamuikatsurgi/rio-at-genesis
+          ref: v1.5.0
 
       - name: Pre kurtosis run
         uses: ./.github/actions/kurtosis/setup
@@ -320,7 +320,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: 0xPolygon/kurtosis-pos
-          ref: kamuikatsurgi/rio-at-genesis
+          ref: v1.5.0
 
       - name: Pre kurtosis run
         uses: ./.github/actions/kurtosis/setup
